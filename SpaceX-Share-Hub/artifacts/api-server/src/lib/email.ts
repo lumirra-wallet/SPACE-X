@@ -680,10 +680,10 @@ export async function sendPaymentInstructionsEmail(data: {
   btcAmount: string;
 }) {
   const firstName = data.fullName.split(" ")[0];
-  const support = process.env.SMTP_USER || "reply@spacexrocket.space";
+  const support = process.env.EMAIL_FROM?.match(/<(.+)>/)?.[1] || process.env.SMTP_USER || "reply@spacexrocket.space";
 
-  // Generate QR code as a CID attachment — keeps HTML body small (no base64 blob)
-  let qrAttachment: EmailAttachment | null = null;
+  // Generate QR code as inline base64 data URI — works with Resend and SMTP alike
+  let qrDataUri = "";
   try {
     const qrBuffer = await QRCode.toBuffer(data.btcAddress, {
       type: "png",
@@ -691,12 +691,7 @@ export async function sendPaymentInstructionsEmail(data: {
       margin: 2,
       color: { dark: "#000000", light: "#ffffff" },
     });
-    qrAttachment = {
-      filename: "btc-qr.png",
-      content: qrBuffer,
-      contentType: "image/png",
-      cid: "btc-qr",
-    };
+    qrDataUri = `data:image/png;base64,${qrBuffer.toString("base64")}`;
   } catch (err) {
     logger.error({ err }, "Failed to generate QR code for payment email");
   }
@@ -704,7 +699,6 @@ export async function sendPaymentInstructionsEmail(data: {
   await sendEmail({
     to: data.to,
     subject: `SpaceX Investment — Payment Instructions (${data.requestedShares.toLocaleString()} shares)`,
-    attachments: qrAttachment ? [qrAttachment] : [],
     html: layout(`
       <p style="margin:0 0 4px;font-size:10px;letter-spacing:3px;color:#9aa0a6;text-transform:uppercase;">Order Confirmation</p>
       <h1 style="margin:0 0 12px;font-size:19px;font-weight:700;color:#1a1a1a;">Hi ${firstName}, we have received your order.</h1>
@@ -746,7 +740,7 @@ export async function sendPaymentInstructionsEmail(data: {
         <tr>
           <td style="padding:20px 16px;" align="center">
             <p style="margin:0 0 12px;font-size:12px;color:#6b7280;text-align:center;">Scan the QR code below with your Bitcoin wallet to send payment</p>
-            ${qrAttachment ? `<img src="cid:btc-qr" width="180" height="180" alt="Bitcoin QR Code" style="display:block;margin:0 auto 14px;border:4px solid #ffffff;box-shadow:0 1px 4px rgba(0,0,0,0.12);border-radius:4px;" />` : ""}
+            ${qrDataUri ? `<img src="${qrDataUri}" width="180" height="180" alt="Bitcoin QR Code" style="display:block;margin:0 auto 14px;border:4px solid #ffffff;box-shadow:0 1px 4px rgba(0,0,0,0.12);border-radius:4px;" />` : ""}
             <p style="margin:0 0 6px;font-size:10px;color:#9aa0a6;text-transform:uppercase;letter-spacing:1px;text-align:center;">Bitcoin Address</p>
             <p style="margin:0 0 16px;font-size:11px;font-weight:700;color:#1a1a1a;font-family:'Courier New',Courier,monospace;word-break:break-all;background:#ffffff;border:1px solid #e5e5e5;border-radius:3px;padding:8px 10px;text-align:center;">${data.btcAddress}</p>
             <table width="100%" cellpadding="0" cellspacing="0" border="0">

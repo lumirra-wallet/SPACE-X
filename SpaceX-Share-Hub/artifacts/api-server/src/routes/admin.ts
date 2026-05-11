@@ -394,17 +394,26 @@ router.post("/admin/purchases/:id/resend-instructions", requireAdmin, async (req
   const btcAddress = btcAddressSetting ?? "bc1qx2vuy9ndykk7h5u57pun9xd8pknq6jfp4km82t";
 
   let btcAmount = "~see below~";
+  // Try Binance → Kraken → CoinGecko for BTC price
   try {
-    const priceRes = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd", {
-      signal: AbortSignal.timeout(5000),
-    });
-    if (priceRes.ok) {
-      const priceData = await priceRes.json() as { bitcoin?: { usd?: number } };
-      const btcUsd = priceData?.bitcoin?.usd;
-      if (btcUsd && btcUsd > 0) {
-        btcAmount = (purchase.amountUsd / btcUsd).toFixed(8);
-      }
+    let btcUsd = 0;
+    try {
+      const r = await fetch("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT", { signal: AbortSignal.timeout(5000) });
+      if (r.ok) { const d = await r.json() as { price?: string }; btcUsd = parseFloat(d.price ?? "0"); }
+    } catch { /* try next */ }
+    if (!btcUsd) {
+      try {
+        const r = await fetch("https://api.kraken.com/0/public/Ticker?pair=XBTUSD", { signal: AbortSignal.timeout(5000) });
+        if (r.ok) { const d = await r.json() as { result?: { XXBTZUSD?: { c?: string[] } } }; btcUsd = parseFloat(d.result?.XXBTZUSD?.c?.[0] ?? "0"); }
+      } catch { /* try next */ }
     }
+    if (!btcUsd) {
+      try {
+        const r = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd", { signal: AbortSignal.timeout(5000) });
+        if (r.ok) { const d = await r.json() as { bitcoin?: { usd?: number } }; btcUsd = d.bitcoin?.usd ?? 0; }
+      } catch { /* all failed */ }
+    }
+    if (btcUsd > 0) btcAmount = (purchase.amountUsd / btcUsd).toFixed(8);
   } catch { /* fall back to placeholder */ }
 
   await sendPaymentInstructionsEmail({

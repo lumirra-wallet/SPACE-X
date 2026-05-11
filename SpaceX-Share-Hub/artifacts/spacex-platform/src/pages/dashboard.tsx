@@ -1260,10 +1260,11 @@ function PurchaseForm({
 
     setSubmitting(true);
     try {
-      await api.createPurchase({
-        requestedShares: numShares,
-        agreedToTerms: true,
-      });
+      const [result] = await Promise.allSettled([
+        api.createPurchase({ requestedShares: numShares, agreedToTerms: true }),
+        new Promise(res => setTimeout(res, 10000)),
+      ]);
+      if (result.status === "rejected") throw result.reason;
       setSucceeded({ shares: numShares, total: totalAmount });
     } catch (e) {
       setError(String(e));
@@ -1305,6 +1306,26 @@ function PurchaseForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3 max-w-2xl">
+
+      {/* Fullscreen loading overlay */}
+      {submitting && (
+        <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center" style={{ backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", background: "rgba(0,0,0,0.72)" }}>
+          {/* Spinning ring */}
+          <div className="relative mb-8">
+            <div className="w-20 h-20 rounded-full border-2 border-white/10" />
+            <div className="absolute inset-0 w-20 h-20 rounded-full border-2 border-transparent border-t-white animate-spin" style={{ animationDuration: "1s" }} />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <svg viewBox="0 0 24 24" fill="white" className="w-6 h-6 opacity-70">
+                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="white" strokeWidth="1.5" fill="none" />
+              </svg>
+            </div>
+          </div>
+          <p className="text-white font-black text-base tracking-[0.25em] uppercase mb-2" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
+            Processing Order
+          </p>
+          <p className="text-white/40 text-xs tracking-widest uppercase">Please wait — do not close this page</p>
+        </div>
+      )}
 
       {/* Shares input hero */}
       <div className="rounded-xl border border-white/[0.1] bg-gradient-to-br from-white/[0.07] to-white/[0.02] backdrop-blur-sm p-4">
