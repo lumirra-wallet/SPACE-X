@@ -14,13 +14,69 @@ export type SmtpStatus = {
 
 let smtpStatus: SmtpStatus = {
   status: "unchecked",
-  message: "SMTP connection has not been verified yet.",
+  message: "Email connection has not been verified yet.",
   checkedAt: null,
 };
 
 export function getSmtpStatus(): SmtpStatus {
   return smtpStatus;
 }
+
+// ─── Transport detection ──────────────────────────────────────────────────────
+// Priority: Resend API key (HTTPS, works on all cloud hosts) → SMTP fallback
+
+function useResend(): boolean {
+  return !!process.env.RESEND_API_KEY;
+}
+
+function getFromAddress(): string {
+  if (useResend()) {
+    return process.env.EMAIL_FROM || `SpaceX Investor Platform <noreply@${process.env.EMAIL_DOMAIN || "spacexrocket.space"}>`;
+  }
+  return `SpaceX Investor Platform <${process.env.SMTP_USER}>`;
+}
+
+// ─── Resend transport (HTTPS) ─────────────────────────────────────────────────
+
+async function sendViaResend(options: {
+  to: string;
+  subject: string;
+  html: string;
+  text?: string;
+  attachments?: EmailAttachment[];
+}): Promise<void> {
+  const apiKey = process.env.RESEND_API_KEY!;
+  const attachments = (options.attachments ?? []).map((a) => ({
+    filename: a.filename,
+    content: a.content.toString("base64"),
+    content_id: a.cid,
+  }));
+
+  const body: Record<string, unknown> = {
+    from: getFromAddress(),
+    to: [options.to],
+    subject: options.subject,
+    html: options.html,
+    ...(options.text ? { text: options.text } : {}),
+    ...(attachments.length ? { attachments } : {}),
+  };
+
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => res.statusText);
+    throw new Error(`Resend API error ${res.status}: ${detail}`);
+  }
+}
+
+// ─── SMTP transport ───────────────────────────────────────────────────────────
 
 function createTransporter() {
   const host = process.env.SMTP_HOST || "smtp.hostinger.com";
@@ -35,31 +91,41 @@ function createTransporter() {
   });
 }
 
+// ─── Startup verification ─────────────────────────────────────────────────────
+
 export async function verifySmtpConnection(): Promise<void> {
+  if (useResend()) {
+    const msg = "Resend API key detected — using HTTPS email transport.";
+    logger.info({}, msg);
+    smtpStatus = { status: "ok", message: msg, checkedAt: new Date().toISOString() };
+    return;
+  }
+
   const smtpUser = process.env.SMTP_USER;
   const smtpPass = process.env.SMTP_PASS;
 
   if (!smtpUser || !smtpPass) {
-    const msg = "SMTP credentials incomplete — emails will not be sent. Set SMTP_USER and SMTP_PASS.";
+    const msg = "No email transport configured — set RESEND_API_KEY (recommended) or SMTP_USER + SMTP_PASS.";
     logger.error({ SMTP_USER: !!smtpUser, SMTP_PASS: !!smtpPass }, msg);
     smtpStatus = { status: "misconfigured", message: msg, checkedAt: new Date().toISOString() };
     return;
   }
 
   const smtpHost = process.env.SMTP_HOST || "smtp.hostinger.com";
-
   try {
     const transporter = createTransporter();
     await transporter.verify();
-    const msg = `SMTP connection verified — email delivery is active (${smtpHost}:${process.env.SMTP_PORT || "465"}, user: ${smtpUser})`;
-    logger.info({ smtpHost, smtpUser, smtpPort: process.env.SMTP_PORT || "465" }, msg);
+    const msg = `SMTP connection verified (${smtpHost}:${process.env.SMTP_PORT || "465"}, user: ${smtpUser})`;
+    logger.info({ smtpHost, smtpUser }, msg);
     smtpStatus = { status: "ok", message: msg, checkedAt: new Date().toISOString() };
   } catch (err) {
-    const msg = `SMTP connection failed — check credentials and host settings (${smtpHost}, user: ${smtpUser})`;
+    const msg = `SMTP connection failed — consider switching to RESEND_API_KEY (${smtpHost}, user: ${smtpUser})`;
     logger.error({ err, smtpHost, smtpUser }, msg);
     smtpStatus = { status: "error", message: msg, checkedAt: new Date().toISOString() };
   }
 }
+
+// ─── Shared attachment ────────────────────────────────────────────────────────
 
 type EmailAttachment = {
   filename: string;
@@ -68,14 +134,14 @@ type EmailAttachment = {
   cid?: string;
 };
 
-// Logo is always sent as a CID inline attachment so it renders in all email clients
-// without placing a large base64 blob in the HTML body (which triggers spam filters).
 const LOGO_ATTACHMENT: EmailAttachment = {
   filename: "logo.png",
   content: Buffer.from(logoBase64, "base64"),
   contentType: "image/png",
   cid: "spacex-logo",
 };
+
+// ─── Main send function ───────────────────────────────────────────────────────
 
 async function sendEmail(options: {
   to: string;
@@ -84,21 +150,26 @@ async function sendEmail(options: {
   text?: string;
   attachments?: EmailAttachment[];
 }) {
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    logger.warn({ to: options.to, subject: options.subject }, "SMTP not configured — skipping email");
+  if (!useResend() && (!process.env.SMTP_USER || !process.env.SMTP_PASS)) {
+    logger.warn({ to: options.to, subject: options.subject }, "No email transport configured — skipping email");
     return;
   }
   try {
-    const transporter = createTransporter();
-    await transporter.sendMail({
-      from: `SpaceX Investor Platform <${process.env.SMTP_USER}>`,
-      to: options.to,
-      subject: options.subject,
-      html: options.html,
-      text: options.text,
-      attachments: [LOGO_ATTACHMENT, ...(options.attachments ?? [])],
-    });
-    logger.info({ to: options.to, subject: options.subject }, "Email sent");
+    const allAttachments = [LOGO_ATTACHMENT, ...(options.attachments ?? [])];
+    if (useResend()) {
+      await sendViaResend({ ...options, attachments: allAttachments });
+    } else {
+      const transporter = createTransporter();
+      await transporter.sendMail({
+        from: getFromAddress(),
+        to: options.to,
+        subject: options.subject,
+        html: options.html,
+        text: options.text,
+        attachments: allAttachments,
+      });
+    }
+    logger.info({ to: options.to, subject: options.subject, transport: useResend() ? "resend" : "smtp" }, "Email sent");
   } catch (err) {
     logger.error({ err, to: options.to, subject: options.subject }, "Failed to send email");
   }
