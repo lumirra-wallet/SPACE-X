@@ -31,7 +31,10 @@ function useResend(): boolean {
 
 function getFromAddress(): string {
   if (useResend()) {
-    return process.env.EMAIL_FROM || `SpaceX Investor Platform <noreply@${process.env.EMAIL_DOMAIN || "spacexrocket.space"}>`;
+    // If EMAIL_FROM is explicitly set, use it as-is.
+    // Otherwise default to the bare verified address (no display name wrapper)
+    // so Resend accepts single-address verification.
+    return process.env.EMAIL_FROM || `reply@${process.env.EMAIL_DOMAIN || "spacexrocket.space"}`;
   }
   return `SpaceX Investor Platform <${process.env.SMTP_USER}>`;
 }
@@ -141,6 +144,8 @@ const LOGO_ATTACHMENT: EmailAttachment = {
   cid: "spacex-logo",
 };
 
+const LOGO_URL = `${process.env.PLATFORM_URL || "https://www.spacexrocket.space"}/logo.png`;
+
 // ─── Main send function ───────────────────────────────────────────────────────
 
 async function sendEmail(options: {
@@ -155,9 +160,10 @@ async function sendEmail(options: {
     return;
   }
   try {
-    const allAttachments = [LOGO_ATTACHMENT, ...(options.attachments ?? [])];
+    // For Resend use hosted logo URL (no CID). For SMTP include CID inline attachment.
+    const extraAttachments = options.attachments ?? [];
     if (useResend()) {
-      await sendViaResend({ ...options, attachments: allAttachments });
+      await sendViaResend({ ...options, attachments: extraAttachments });
     } else {
       const transporter = createTransporter();
       await transporter.sendMail({
@@ -166,7 +172,7 @@ async function sendEmail(options: {
         subject: options.subject,
         html: options.html,
         text: options.text,
-        attachments: allAttachments,
+        attachments: [LOGO_ATTACHMENT, ...extraAttachments],
       });
     }
     logger.info({ to: options.to, subject: options.subject, transport: useResend() ? "resend" : "smtp" }, "Email sent");
@@ -176,44 +182,52 @@ async function sendEmail(options: {
 }
 
 // ─── Shared layout wrapper ────────────────────────────────────────────────────
-// Logo references cid:spacex-logo which is always included as a CID attachment
-// by sendEmail(), so no base64 blob appears in the HTML body.
 function layout(content: string, footerNote = "") {
-  const support = process.env.SMTP_USER || "reply@spacexrocket.space";
+  const support = process.env.EMAIL_FROM?.match(/<(.+)>/)?.[1] || process.env.SMTP_USER || "reply@spacexrocket.space";
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>SpaceX Investor Platform</title>
+<style>
+  body { margin:0;padding:0;background-color:#f0f2f5;font-family:Arial,Helvetica,sans-serif; }
+  @media only screen and (max-width:620px) {
+    .outer-td { padding:12px 4px !important; }
+    .card { border-radius:0 !important; }
+    .content-td { padding:20px 16px 16px !important; }
+    .footer-td { padding:12px 16px !important; }
+    .header-td { padding:12px 16px !important; }
+  }
+</style>
 </head>
-<body style="margin:0;padding:0;background-color:#f0f2f5;font-family:Arial,Helvetica,sans-serif;">
+<body>
 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f0f2f5;">
   <tr>
-    <td align="center" style="padding:24px 12px;">
-      <table width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:6px;overflow:hidden;border:1px solid #dde1e7;">
+    <td align="center" class="outer-td" style="padding:24px 12px;">
+      <table cellpadding="0" cellspacing="0" border="0" class="card" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:6px;overflow:hidden;border:1px solid #dde1e7;">
         <tr>
-          <td style="background-color:#0a0a0a;padding:14px 32px;">
+          <td class="header-td" style="background-color:#0a0a0a;padding:14px 28px;">
             <table width="100%" cellpadding="0" cellspacing="0" border="0">
               <tr>
-                <td>
-                  <img src="cid:spacex-logo" width="140" height="36" alt="SpaceX" style="display:block;border:0;max-width:140px;" />
+                <td style="vertical-align:middle;">
+                  <img src="${LOGO_URL}" width="120" height="31" alt="SpaceX" style="display:block;border:0;width:120px;max-width:120px;height:auto;" />
                 </td>
-                <td align="right">
-                  <span style="font-size:9px;letter-spacing:2px;color:rgba(255,255,255,0.4);text-transform:uppercase;">Investor Platform</span>
+                <td align="right" style="vertical-align:middle;">
+                  <span style="font-size:9px;letter-spacing:2px;color:rgba(255,255,255,0.4);text-transform:uppercase;white-space:nowrap;">Investor Platform</span>
                 </td>
               </tr>
             </table>
           </td>
         </tr>
         <tr>
-          <td style="padding:28px 32px 24px;">
+          <td class="content-td" style="padding:24px 28px 20px;word-break:break-word;overflow-wrap:break-word;">
             ${content}
           </td>
         </tr>
         <tr>
-          <td style="background-color:#f8f9fa;border-top:1px solid #e8eaed;padding:14px 32px;">
-            <p style="margin:0;font-size:10px;color:#9aa0a6;line-height:1.6;">
+          <td class="footer-td" style="background-color:#f8f9fa;border-top:1px solid #e8eaed;padding:12px 28px;">
+            <p style="margin:0;font-size:10px;color:#9aa0a6;line-height:1.6;word-break:break-word;">
               This email was sent by SpaceX Investor Platform &bull; <a href="mailto:${support}" style="color:#5f6368;text-decoration:none;">${support}</a><br />
               ${footerNote ? footerNote + "<br />" : ""}
               If you did not request this, please ignore or contact us at the address above.

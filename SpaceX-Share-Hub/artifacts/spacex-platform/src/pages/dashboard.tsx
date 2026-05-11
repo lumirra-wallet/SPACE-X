@@ -877,7 +877,7 @@ export default function DashboardPage() {
                 onSuccess={() => {
                   qc.invalidateQueries({ queryKey: ["purchases"] });
                   qc.invalidateQueries({ queryKey: ["dashboard"] });
-                  setSection("shares");
+                  setSection("transactions");
                 }}
               />
             </motion.div>
@@ -891,11 +891,11 @@ export default function DashboardPage() {
             </motion.div>
           )}
 
-          {/* ── TRANSACTIONS ──────────────────────── */}
+          {/* ── ORDERS ──────────────────────── */}
           {section === "transactions" && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-2 md:space-y-6">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-2 md:space-y-4">
               <div className="flex items-center justify-between flex-wrap gap-2">
-                <SectionHeader label="TRANSACTIONS" sub="SpaceX Equity Purchase History" />
+                <SectionHeader label="ORDERS" sub="SpaceX Equity Purchase History" />
                 <button
                   onClick={() => setSection("purchase")}
                   className="flex items-center gap-2 px-4 py-2 bg-white text-black text-[0.6rem] font-black tracking-widest uppercase hover:bg-white/90 transition-colors"
@@ -906,6 +906,35 @@ export default function DashboardPage() {
                 </button>
               </div>
 
+              {/* Summary stats — always visible at the top */}
+              {(purchases as Purchase[]).length > 0 && (
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    {
+                      label: "TOTAL INVESTED",
+                      value: `$${(purchases as Purchase[]).reduce((s, p) => s + Number(p.amountUsd), 0).toLocaleString()}`,
+                      sub: "USD committed"
+                    },
+                    {
+                      label: "TOTAL SHARES",
+                      value: (purchases as Purchase[]).reduce((s, p) => s + Number(p.requestedShares), 0).toLocaleString(),
+                      sub: "equity units"
+                    },
+                    {
+                      label: "ORDER COUNT",
+                      value: String((purchases as Purchase[]).length),
+                      sub: `${(purchases as Purchase[]).filter(p => p.status === "confirmed").length} confirmed`
+                    },
+                  ].map(({ label, value, sub }) => (
+                    <div key={label} className="relative overflow-hidden rounded-xl border border-white/[0.08] bg-gradient-to-br from-white/[0.06] to-white/[0.01] p-3 md:p-4">
+                      <p className="text-white/20 text-[0.5rem] tracking-widest uppercase mb-1" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>{label}</p>
+                      <p className="text-white font-black text-lg md:text-xl" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>{value}</p>
+                      <p className="text-white/25 text-[0.55rem] mt-0.5">{sub}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-gradient-to-b from-white/[0.04] to-transparent backdrop-blur-sm">
                 <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
 
@@ -914,7 +943,7 @@ export default function DashboardPage() {
                     <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1" className="w-12 h-12 mx-auto text-white/10 mb-4">
                       <rect x="4" y="8" width="40" height="32" rx="3"/><line x1="12" y1="18" x2="36" y2="18"/><line x1="12" y1="25" x2="24" y2="25"/>
                     </svg>
-                    <p className="text-white/30 text-sm mb-1">No transactions yet.</p>
+                    <p className="text-white/30 text-sm mb-1">No orders yet.</p>
                     <p className="text-white/15 text-xs">Your equity purchases will appear here.</p>
                     <button onClick={() => setSection("purchase")}
                       className="mt-5 text-xs text-white/40 hover:text-white tracking-widest uppercase underline transition-colors"
@@ -969,33 +998,6 @@ export default function DashboardPage() {
                           </motion.div>
                         ))}
                     </div>
-
-                    {/* Summary footer */}
-                    <div className="px-5 py-5 border-t border-white/[0.06] grid grid-cols-3 gap-4 bg-white/[0.02]">
-                      {[
-                        {
-                          label: "TOTAL INVESTED",
-                          value: `$${(purchases as Purchase[]).reduce((s, p) => s + Number(p.amountUsd), 0).toLocaleString()}`,
-                          sub: "USD committed"
-                        },
-                        {
-                          label: "TOTAL SHARES",
-                          value: (purchases as Purchase[]).reduce((s, p) => s + Number(p.requestedShares), 0).toLocaleString(),
-                          sub: "equity units"
-                        },
-                        {
-                          label: "ORDERS",
-                          value: String((purchases as Purchase[]).length),
-                          sub: `${(purchases as Purchase[]).filter(p => p.status === "confirmed").length} confirmed`
-                        },
-                      ].map(({ label, value, sub }) => (
-                        <div key={label}>
-                          <p className="text-white/20 text-[0.52rem] tracking-widest uppercase mb-1" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>{label}</p>
-                          <p className="text-white font-black text-xl" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>{value}</p>
-                          <p className="text-white/25 text-[0.58rem] mt-0.5">{sub}</p>
-                        </div>
-                      ))}
-                    </div>
                   </>
                 )}
               </div>
@@ -1016,10 +1018,10 @@ export default function DashboardPage() {
                   icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.3" className="w-4 h-4"><line x1="3" y1="20.5" x2="21" y2="20.5" strokeWidth="0.6" strokeOpacity="0.45"/><line x1="3" y1="20.5" x2="3" y2="5" strokeWidth="0.6" strokeOpacity="0.45"/><polyline points="3,18 7,13 11,15.5 19,5.5" strokeWidth="1.6"/><circle cx="19" cy="5.5" r="1.6" fill="currentColor" stroke="none"/></svg> },
                 { id: "purchase" as Section, label: "Buy", navigate: false, verify: false,
                   icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.3" className="w-4 h-4"><polygon points="12,3 20.5,7.5 20.5,16.5 12,21 3.5,16.5 3.5,7.5"/><line x1="12" y1="9" x2="12" y2="15" strokeWidth="1.5"/><line x1="9" y1="12" x2="15" y2="12" strokeWidth="1.5"/></svg> },
+                { id: "transactions" as Section, label: "Orders", navigate: false, verify: false,
+                  icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.3" className="w-4 h-4"><rect x="4" y="3" width="16" height="18" rx="2"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="16" x2="12" y2="16"/></svg> },
                 { id: "apps" as Section, label: "Transfer", navigate: true, verify: false, navPath: "/transfer",
                   icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.3" className="w-4 h-4"><path d="M3 7h14m0 0-3-3m3 3-3 3"/><path d="M21 17H7m0 0 3-3m-3 3 3 3"/></svg> },
-                { id: "apps" as Section, label: "Apps", navigate: false, verify: false,
-                  icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.3" className="w-4 h-4"><rect x="3" y="3" width="8" height="8"/><rect x="13" y="3" width="8" height="8"/><rect x="3" y="13" width="8" height="8"/><rect x="13" y="13" width="8" height="8"/></svg> },
               ].map(({ id, label, icon, verify, navigate: isNavItem, navPath }) => (
                 <button
                   key={`${label}-${id}`}
@@ -1244,6 +1246,7 @@ function PurchaseForm({
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [succeeded, setSucceeded] = useState<{ shares: number; total: number } | null>(null);
 
   const numShares = Number(shares) || 0;
   const totalAmount = numShares * sharePrice;
@@ -1261,12 +1264,43 @@ function PurchaseForm({
         requestedShares: numShares,
         agreedToTerms: true,
       });
-      onSuccess();
+      setSucceeded({ shares: numShares, total: totalAmount });
     } catch (e) {
       setError(String(e));
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (succeeded) {
+    return (
+      <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} className="max-w-2xl">
+        <div className="relative overflow-hidden rounded-2xl border border-white/[0.12] bg-gradient-to-br from-white/[0.08] to-white/[0.02] backdrop-blur-sm p-8 text-center">
+          <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/30 to-transparent" />
+          {/* Checkmark */}
+          <div className="w-14 h-14 rounded-full border border-white/20 bg-white/[0.06] flex items-center justify-center mx-auto mb-5">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-7 h-7 text-white">
+              <polyline points="4,12 9,17 20,6" />
+            </svg>
+          </div>
+          <p className="text-white/40 text-[0.6rem] tracking-[0.3em] uppercase mb-2" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>Order Submitted</p>
+          <p className="text-white font-black text-3xl mb-1" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
+            {succeeded.shares.toLocaleString()} <span className="text-white/40 text-xl">shares</span>
+          </p>
+          <p className="text-white/50 text-sm mb-1">${succeeded.total.toLocaleString(undefined, { maximumFractionDigits: 0 })} USD</p>
+          <p className="text-white/30 text-xs mt-4 mb-7 leading-relaxed max-w-xs mx-auto">
+            Your purchase order has been received. Payment instructions have been sent to your email. You will be notified once your order is confirmed.
+          </p>
+          <button
+            onClick={onSuccess}
+            className="w-full bg-white text-black font-black py-3 text-xs tracking-widest uppercase hover:bg-white/90 transition-colors"
+            style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}
+          >
+            VIEW MY ORDERS ›
+          </button>
+        </div>
+      </motion.div>
+    );
   }
 
   return (
