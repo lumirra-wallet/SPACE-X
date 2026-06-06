@@ -41,22 +41,34 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/api", router);
 
 // Serve the built React frontend (production only)
-// __dirname = artifacts/api-server/dist — go up 3 levels to repo root, then into the frontend dist
-const frontendDist = path.resolve(__dirname, "../../../artifacts/spacex-platform/dist/public");
-logger.info({ frontendDist, exists: existsSync(frontendDist) }, "Frontend dist path");
-if (existsSync(frontendDist)) {
+// Try multiple candidate roots to handle different Vercel runtime working directories
+const candidateRoots = [
+  path.resolve(__dirname, "../../.."),         // from artifacts/api-server/dist → repo root
+  path.resolve(__dirname, "../../../.."),      // one level deeper just in case
+  process.cwd(),                               // Vercel sometimes sets cwd to repo root
+  "/vercel/path0/SpaceX-Share-Hub",           // Vercel build-time absolute path
+];
+
+const frontendRelative = "artifacts/spacex-platform/dist/public";
+const frontendDist =
+  candidateRoots
+    .map((r) => path.join(r, frontendRelative))
+    .find((p) => existsSync(p)) ?? null;
+
+logger.info({ frontendDist, __dirname, cwd: process.cwd() }, "Frontend dist resolution");
+
+if (frontendDist) {
   app.use(express.static(frontendDist));
-  // SPA fallback — all non-API routes serve index.html
   app.get("/*splat", (_req, res) => {
     res.sendFile(path.join(frontendDist, "index.html"));
   });
 } else {
-  // Fallback so "Cannot GET /" never appears — helps diagnose path issues
   app.get("/*splat", (_req, res) => {
     res.status(503).json({
-      error: "Frontend not built",
-      frontendDist,
+      error: "Frontend not found",
+      tried: candidateRoots.map((r) => path.join(r, frontendRelative)),
       __dirname,
+      cwd: process.cwd(),
     });
   });
 }
