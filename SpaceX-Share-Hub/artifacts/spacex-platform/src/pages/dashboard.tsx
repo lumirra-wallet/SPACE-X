@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUser, useSettings } from "@/hooks/useUser";
-import { api, type Purchase, type PriceAlert } from "@/lib/api";
+import { api, type Purchase, type PriceAlert, type OHLCPoint } from "@/lib/api";
 import { motion } from "framer-motion";
 import { format } from "date-fns";
 import appLogo from "@assets/xpsca_1778445100452.png";
@@ -57,16 +57,12 @@ function IpoCountdown({ ipoTargetDate }: { ipoTargetDate: string }) {
 
 type Section = "overview" | "shares" | "purchase" | "apps" | "transactions";
 
-// ── OHLCV price data generation ────────────────────────────────────────
-interface OHLCPoint {
-  date: string; label: string;
-  open: number; high: number; low: number; close: number; volume: number;
-}
+// ── OHLCV price data generation (local fallback) ───────────────────────
 function generateOHLCData(): OHLCPoint[] {
   const points: OHLCPoint[] = [];
-  let prevClose = 94;
+  let prevClose = 108;
   const start = new Date("2025-06-02");
-  const end = new Date("2026-05-11");
+  const end = new Date("2026-06-05");
   let seed = 7919; let vSeed = 31337;
   function rng() { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; }
   function vrng() { vSeed = (vSeed * 22695477 + 1) >>> 0; return vSeed / 4294967296; }
@@ -75,7 +71,7 @@ function generateOHLCData(): OHLCPoint[] {
     const dow = cur.getDay();
     if (dow !== 0 && dow !== 6) {
       const ret = 0.00028 + 0.009 * (rng() * 2 - 1);
-      const close = Math.max(82, Math.min(158, prevClose * (1 + ret)));
+      const close = Math.max(98, Math.min(162, prevClose * (1 + ret)));
       const open = prevClose;
       const high = Math.max(open, close) * (1 + 0.006 * rng());
       const low  = Math.min(open, close) * (1 - 0.006 * rng());
@@ -88,7 +84,7 @@ function generateOHLCData(): OHLCPoint[] {
     }
     cur.setDate(cur.getDate() + 1);
   }
-  if (points.length > 0) points[points.length - 1].close = 150;
+  if (points.length > 0) points[points.length - 1].close = 130;
   return points;
 }
 const ALL_OHLC_DATA = generateOHLCData();
@@ -103,22 +99,44 @@ function LiveStockChart({ sharePrice }: { sharePrice: number }) {
   const [flashDir, setFlashDir] = useState<"up" | "down" | null>(null);
   const lastRef = useRef(sharePrice);
 
-  useEffect(() => { lastRef.current = sharePrice; setLivePrice(sharePrice); }, [sharePrice]);
+  const { data: historyData } = useQuery({
+    queryKey: ["priceHistory"],
+    queryFn: api.getPriceHistory,
+    staleTime: 4 * 60 * 60 * 1000,
+    retry: 1,
+  });
+
+  const { data: quoteData } = useQuery({
+    queryKey: ["priceQuote"],
+    queryFn: api.getPriceQuote,
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+    retry: 1,
+  });
+
+  const sourceData: OHLCPoint[] = historyData?.points?.length ? historyData.points : ALL_OHLC_DATA;
 
   useEffect(() => {
+    const base = quoteData?.price ?? sharePrice;
+    lastRef.current = base;
+    setLivePrice(base);
+  }, [sharePrice, quoteData?.price]);
+
+  useEffect(() => {
+    const base = quoteData?.price ?? sharePrice;
     const id = setInterval(() => {
       const delta = (Math.random() - 0.47) * 1.2;
       const next = parseFloat((lastRef.current + delta).toFixed(2));
-      const clamped = Math.max(sharePrice - 8, Math.min(sharePrice + 8, next));
+      const clamped = Math.max(base - 8, Math.min(base + 8, next));
       setFlashDir(clamped >= lastRef.current ? "up" : "down");
       lastRef.current = clamped;
       setLivePrice(clamped);
       setTimeout(() => setFlashDir(null), 600);
     }, 2000);
     return () => clearInterval(id);
-  }, [sharePrice]);
+  }, [sharePrice, quoteData?.price]);
 
-  const sliced = ALL_OHLC_DATA.slice(-PERIOD_DAYS[period]);
+  const sliced = sourceData.slice(-PERIOD_DAYS[period]);
   const chartData = sliced.map((d, i) => i === sliced.length - 1 ? { ...d, close: livePrice } : d);
   const periodStart = chartData[0]?.close ?? sharePrice;
   const pctChange = ((livePrice - periodStart) / periodStart) * 100;
@@ -159,7 +177,7 @@ function LiveStockChart({ sharePrice }: { sharePrice: number }) {
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <span className="text-white/25 text-[0.52rem] tracking-[0.2em] uppercase" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>SPX · PRIVATE MARKETS</span>
+              <span className="text-white/25 text-[0.52rem] tracking-[0.2em] uppercase" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>SPCX · NASDAQ</span>
               <div className="flex items-center gap-1">
                 <span className="relative flex h-1.5 w-1.5">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
@@ -278,7 +296,7 @@ function LiveStockChart({ sharePrice }: { sharePrice: number }) {
 
       {/* Footer */}
       <div className="px-4 py-1.5 border-t border-white/[0.04] flex items-center justify-between">
-        <span className="text-white/[0.08] text-[0.46rem] tracking-widest uppercase" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>SPACEX PRIVATE MARKETS · PRE-IPO</span>
+        <span className="text-white/[0.08] text-[0.46rem] tracking-widest uppercase" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>SPACEX (SPCX) · NASDAQ</span>
         <span className="text-white/[0.08] text-[0.46rem] tracking-widest uppercase" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>SIMULATED · NOT EXCHANGE LISTED</span>
       </div>
     </div>
@@ -446,7 +464,7 @@ export default function DashboardPage() {
 
 
   const isPostIpo = summary?.systemMode === "post_ipo";
-  const sharePrice = summary?.sharePrice ?? settings?.sharePrice ?? 150;
+  const sharePrice = summary?.sharePrice ?? settings?.sharePrice ?? 130;
   const minInvestment = settings?.minInvestment ?? 2000;
   const minShares = Math.ceil(minInvestment / sharePrice);
   const totalShares = summary?.totalShares ?? user?.totalSharesCredited ?? 0;
@@ -577,7 +595,7 @@ export default function DashboardPage() {
         </div>
 
         <main
-          className="flex-1 overflow-y-auto px-4 md:px-10 pt-20 pb-24 md:pt-6 md:pb-8 max-w-5xl w-full mx-auto"
+          className={`flex-1 px-4 md:px-10 pt-20 pb-24 md:pt-6 md:pb-8 max-w-5xl w-full mx-auto ${section === "overview" ? "overflow-hidden" : "overflow-y-auto"}`}
           style={{ overscrollBehavior: "none" }}
         >
 
@@ -593,10 +611,6 @@ export default function DashboardPage() {
                     {user?.fullName?.split(" ")[0] || "Welcome back"}
                   </h2>
                 </div>
-                <span className={`text-[0.6rem] font-black px-2.5 py-1 tracking-widest border ${isPostIpo ? "bg-green-400/15 border-green-400/30 text-green-400" : "bg-white/[0.06] border-white/[0.1] text-white/40"}`}
-                  style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
-                  {isPostIpo ? "POST-IPO" : "PRE-IPO"}
-                </span>
               </div>
 
               {/* Portfolio hero card — liquid glass */}
@@ -662,33 +676,39 @@ export default function DashboardPage() {
                 </button>
               </div>
 
-              {/* Recent activity — glass panel */}
-              {(purchases as Purchase[]).length > 0 && (
-                <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-gradient-to-b from-white/[0.04] to-transparent backdrop-blur-sm">
-                  <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
-                  <div className="px-5 py-4 border-b border-white/[0.06] flex items-center justify-between">
-                    <p className="text-white/40 text-[0.65rem] tracking-widest uppercase" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
-                      RECENT ACTIVITY
-                    </p>
-                    <button onClick={() => setSection("transactions")}
-                      className="text-white/30 hover:text-white tracking-widest uppercase transition-colors"
-                      style={{ fontFamily: "'Arial Black', Arial, sans-serif", fontSize: "0.6rem" }}>
-                      VIEW ALL ›
-                    </button>
-                  </div>
-                  <div className="divide-y divide-white/[0.05]">
-                    {(purchases as Purchase[]).slice(0, 3).map((p) => (
-                      <div key={p.id} className="px-5 py-3.5 flex items-center justify-between">
+              {/* Recent activity — 1 pending order only */}
+              {(() => {
+                const recentOrder = (purchases as Purchase[]).find(p => p.status === "pending") ?? (purchases as Purchase[])[0] ?? null;
+                if (!recentOrder) return null;
+                return (
+                  <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-gradient-to-b from-white/[0.04] to-transparent backdrop-blur-sm">
+                    <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+                    <div className="px-5 py-4 border-b border-white/[0.06] flex items-center justify-between">
+                      <p className="text-white/40 text-[0.65rem] tracking-widest uppercase" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
+                        RECENT ORDER
+                      </p>
+                    </div>
+                    <div>
+                      <div className="px-5 py-3.5 flex items-center justify-between">
                         <div>
-                          <p className="text-white font-semibold text-sm">{Number(p.requestedShares).toLocaleString()} shares</p>
-                          <p className="text-white/30 text-xs mt-0.5">${Number(p.amountUsd).toLocaleString()} · {format(new Date(p.createdAt), "MMM d, yyyy")}</p>
+                          <p className="text-white font-semibold text-sm">{Number(recentOrder.requestedShares).toLocaleString()} shares</p>
+                          <p className="text-white/30 text-xs mt-0.5">${Number(recentOrder.amountUsd).toLocaleString()} · {format(new Date(recentOrder.createdAt), "MMM d, yyyy")}</p>
                         </div>
-                        <span className={`text-xs px-2.5 py-1 border font-semibold ${statusBadge(p.status)}`}>{statusLabel(p.status)}</span>
+                        <span className={`text-xs px-2.5 py-1 border font-semibold ${statusBadge(recentOrder.status)}`}>{statusLabel(recentOrder.status)}</span>
                       </div>
-                    ))}
+                      <div className="px-5 pb-4 pt-1">
+                        <button
+                          onClick={() => setSection("transactions")}
+                          className="w-full py-2 text-[0.6rem] font-black tracking-widest uppercase text-white/30 hover:text-white border border-white/[0.08] hover:border-white/20 transition-colors"
+                          style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}
+                        >
+                          VIEW ALL ORDERS ›
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
             </motion.div>
           )}
 
@@ -704,7 +724,7 @@ export default function DashboardPage() {
                   <div>
                     <p className="text-white/30 text-[0.52rem] tracking-[0.18em] uppercase mb-0.5"
                       style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
-                      POSITION · SPACEX PRIVATE
+                      POSITION · SPACEX (SPCX) · NASDAQ
                     </p>
                     <div className="flex items-baseline gap-2.5 flex-wrap">
                       <p className="text-xl font-black text-white"

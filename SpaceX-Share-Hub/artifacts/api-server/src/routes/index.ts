@@ -8,6 +8,7 @@ import dashboardRouter from "./dashboard";
 import adminRouter from "./admin";
 import certificateRouter from "./certificate";
 import alertsRouter from "./alerts";
+import priceRouter from "./price";
 
 const router: IRouter = Router();
 
@@ -20,5 +21,6 @@ router.use(dashboardRouter);
 router.use(adminRouter);
 router.use(certificateRouter);
 router.use(alertsRouter);
+router.use(priceRouter);
 
 export default router;

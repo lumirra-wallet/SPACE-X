@@ -67,7 +67,7 @@ router.get("/admin/stats", requireAdmin, async (_req: Request, res: Response): P
   const allPurchases = await Purchase.find();
 
   const totalSharesCredited = allUsers.reduce((acc, u) => acc + u.totalSharesCredited, 0);
-  const sharePrice = Number((await getSetting("share_price")) ?? "150");
+  const sharePrice = Number((await getSetting("share_price")) ?? "130");
 
   res.json({
     totalUsers: allUsers.length,
@@ -81,7 +81,7 @@ router.get("/admin/stats", requireAdmin, async (_req: Request, res: Response): P
 
 router.get("/admin/users", requireAdmin, async (_req: Request, res: Response): Promise<void> => {
   const users = await User.find().sort({ createdAt: -1 });
-  const sharePrice = Number((await getSetting("share_price")) ?? "150");
+  const sharePrice = Number((await getSetting("share_price")) ?? "130");
   res.json(users.map((u) => formatUser(u, sharePrice)));
 });
 
@@ -126,7 +126,7 @@ router.patch("/admin/users/:id/access", requireAdmin, async (req: Request, res: 
     return;
   }
 
-  const sharePrice = Number((await getSetting("share_price")) ?? "150");
+  const sharePrice = Number((await getSetting("share_price")) ?? "130");
   res.json(formatUser(user, sharePrice));
 });
 
@@ -154,7 +154,7 @@ router.post("/admin/users/:id/credit", requireAdmin, async (req: Request, res: R
     return;
   }
 
-  const sharePrice = Number((await getSetting("share_price")) ?? "150");
+  const sharePrice = Number((await getSetting("share_price")) ?? "130");
   const amountUsd = Number(shares) * sharePrice;
   const platformUrl = process.env.PLATFORM_URL || "https://spacexrocket.space";
 
@@ -217,7 +217,7 @@ router.patch("/admin/purchases/:id/status", requireAdmin, async (req: Request, r
   if (status === "confirmed" && prevStatus !== "confirmed") {
     await User.findByIdAndUpdate(user._id, { $inc: { totalSharesCredited: purchase.requestedShares } });
 
-    const sharePrice = Number((await getSetting("share_price")) ?? "150");
+    const sharePrice = Number((await getSetting("share_price")) ?? "130");
     const platformUrl = process.env.PLATFORM_URL || "https://spacexrocket.space";
     sendSharesCreditedEmail({
       to: user.email,
@@ -313,8 +313,8 @@ router.patch("/admin/settings", requireAdmin, async (req: Request, res: Response
   const finalEth = await getSetting("eth_address");
 
   res.json({
-    sharePrice: Number(finalPrice ?? "150"),
-    systemMode: finalMode ?? "pre_ipo",
+    sharePrice: Number(finalPrice ?? "130"),
+    systemMode: finalMode ?? "post_ipo",
     minInvestment: Number(finalMin ?? "2000"),
     ipoTargetDate: finalIpoDate || null,
     btcAddress: finalBtc ?? "bc1qx2vuy9ndykk7h5u57pun9xd8pknq6jfp4km82t",

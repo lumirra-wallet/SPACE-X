@@ -140,6 +140,10 @@ export const api = {
     URL.revokeObjectURL(url);
   },
 
+  // Price (Yahoo Finance proxy)
+  getPriceHistory: () => apiFetch<{ points: OHLCPoint[] }>("/price/history"),
+  getPriceQuote: () => apiFetch<{ price: number; prevClose: number; change: number; changePercent: number }>("/price/quote"),
+
   // Price Alerts
   getAlerts: () => apiFetch<PriceAlert[]>("/alerts"),
   createAlert: (targetPrice: number, direction: boolean) =>
@@ -270,6 +274,11 @@ export interface SmtpStatus {
   status: "unchecked" | "ok" | "error" | "misconfigured";
   message: string;
   checkedAt: string | null;
+}
+
+export interface OHLCPoint {
+  date: string; label: string;
+  open: number; high: number; low: number; close: number; volume: number;
 }
 
 export interface PriceAlert {

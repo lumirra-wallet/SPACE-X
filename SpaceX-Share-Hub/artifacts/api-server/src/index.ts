@@ -12,10 +12,20 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 async function seedDefaultSettings() {
-  const sharePriceSeed = process.env["SHARE_PRICE_SEED"] ?? "150.00";
-  const defaults: Array<{ key: string; value: string }> = [
+  const sharePriceSeed = process.env["SHARE_PRICE_SEED"] ?? "130.00";
+
+  // Always enforce post-IPO state — these are forced on every start.
+  const forced: Array<{ key: string; value: string }> = [
     { key: "share_price", value: sharePriceSeed },
-    { key: "system_mode", value: "pre_ipo" },
+    { key: "system_mode", value: "post_ipo" },
+  ];
+  for (const { key, value } of forced) {
+    await Setting.findOneAndUpdate({ key }, { value }, { upsert: true });
+    logger.info({ key, value }, "Enforced setting");
+  }
+
+  // Only create these if not already present.
+  const defaults: Array<{ key: string; value: string }> = [
     { key: "min_investment", value: "2000" },
   ];
   for (const { key, value } of defaults) {

@@ -416,7 +416,7 @@ export async function sendWelcomeEmail(to: string, fullName: string) {
       <p style="margin:0 0 4px;font-size:10px;letter-spacing:3px;color:#9aa0a6;text-transform:uppercase;">Welcome</p>
       <h1 style="margin:0 0 14px;font-size:19px;font-weight:700;color:#1a1a1a;">Hi ${firstName},</h1>
       <p style="margin:0 0 14px;font-size:13px;color:#374151;line-height:1.7;">
-        Your SpaceX investor account has been created. You now have access to SpaceX pre-IPO equity — an opportunity available to a select group of accredited investors before the public offering.
+        Your SpaceX investor account has been created. You now have access to SpaceX (SPCX) equity — now publicly traded on Nasdaq since June 12, 2026, available to verified accredited investors through our platform.
       </p>
       <p style="margin:0 0 22px;font-size:13px;color:#374151;line-height:1.7;">
         To get started, complete your accredited investor verification and select your investment amount from your dashboard.
@@ -704,7 +704,7 @@ export async function sendPaymentInstructionsEmail(data: {
       <h1 style="margin:0 0 12px;font-size:19px;font-weight:700;color:#1a1a1a;">Hi ${firstName}, we have received your order.</h1>
 
       <p style="margin:0 0 20px;font-size:13px;color:#374151;line-height:1.7;">
-        Your request for <strong>${data.requestedShares.toLocaleString()} SpaceX pre-IPO shares</strong> ($${data.amountUsd.toLocaleString()} USD) is now pending payment. Please follow the instructions below to complete your purchase.
+        Your request for <strong>${data.requestedShares.toLocaleString()} SpaceX shares (SPCX)</strong> ($${data.amountUsd.toLocaleString()} USD) is now pending payment. Please follow the instructions below to complete your purchase.
       </p>
 
       <!-- Order summary -->

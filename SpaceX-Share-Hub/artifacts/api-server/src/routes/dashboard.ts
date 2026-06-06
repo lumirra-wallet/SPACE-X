@@ -17,7 +17,7 @@ router.get("/dashboard/summary", requireEnabledUser, async (req: Request, res: R
 
   const sharePriceStr = await getSetting("share_price");
   const systemMode = await getSetting("system_mode");
-  const sharePrice = Number(sharePriceStr ?? "150.00");
+  const sharePrice = Number(sharePriceStr ?? "130.00");
   const totalShares = user.totalSharesCredited;
   const totalUsdValue = totalShares * sharePrice;
 

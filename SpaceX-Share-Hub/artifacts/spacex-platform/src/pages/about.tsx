@@ -76,7 +76,7 @@ export default function AboutPage() {
               DEMOCRATIZING<br />ACCESS TO SPACE EQUITY
             </h2>
             <p className="text-white/50 leading-relaxed mb-4">
-              For decades, ownership in companies like SpaceX was reserved for venture funds and institutional players. We changed that. Our platform connects verified accredited investors directly with pre-IPO SpaceX shares through regulated secondary market transactions.
+              For decades, ownership in companies like SpaceX was reserved for venture funds and institutional players. We changed that. SpaceX (SPCX) listed on Nasdaq on June 12, 2026 — and our platform connects verified accredited investors directly with SpaceX shares through regulated transactions.
             </p>
             <p className="text-white/50 leading-relaxed">
               Every investment is processed in full compliance with SEC Regulation D and applicable securities law. Our team of securities attorneys and investment professionals reviews every transaction before settlement.
@@ -89,7 +89,7 @@ export default function AboutPage() {
               { step: "01", title: "Apply & Verify", desc: "Submit your accreditation details. Our team reviews your investor status within 24–48 hours." },
               { step: "02", title: "Fund Your Account", desc: "Wire your investment amount. Minimum $10,000 for direct share access." },
               { step: "03", title: "Receive Shares", desc: "SpaceX shares are transferred to your account via our regulated custodial process." },
-              { step: "04", title: "Hold for IPO", desc: "When SpaceX goes public, your shares convert to publicly traded stock automatically." },
+              { step: "04", title: "Transfer to Brokerage", desc: "SpaceX is now publicly traded on Nasdaq (SPCX). Transfer your shares to your registered brokerage to trade on the open market." },
             ].map((item) => (
               <div key={item.step} className="flex gap-6 mb-8 last:mb-0">
                 <div className="text-white/15 font-black text-2xl w-8 shrink-0 mt-0.5" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>{item.step}</div>
@@ -134,7 +134,7 @@ export default function AboutPage() {
           <h2 className="text-white font-black text-3xl md:text-5xl tracking-wide mb-6" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
             READY TO INVEST?
           </h2>
-          <p className="text-white/40 mb-10 max-w-md mx-auto">Apply now for accredited investor access to SpaceX pre-IPO shares.</p>
+          <p className="text-white/40 mb-10 max-w-md mx-auto">Apply now for accredited investor access to SpaceX shares — now publicly traded on Nasdaq under ticker SPCX.</p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <button
               onClick={() => navigate("/invest")}

@@ -292,26 +292,26 @@ function InvestOverlay({ onClose }: { onClose: () => void }) {
 const HERO_SLIDES = [
   {
     image: "https://images.unsplash.com/photo-1516849841032-87cbac4d88f7?w=1920&q=90&auto=format&fit=crop",
-    headline: "MAKING LIFE\nMULTIPLANETARY",
-    sub: "Own equity in the most ambitious company in history — before the public IPO.",
+    headline: "SPACEX IS NOW\nPUBLIC",
+    sub: "SpaceX (SPCX) is now trading on Nasdaq. Accredited investors can buy shares directly through our platform at $130/share.",
   },
   {
     image: "https://images.unsplash.com/photo-1541185933-ef5d8ed016c2?w=1920&q=90&auto=format&fit=crop",
     headline: "REDEFINING\nSPACE TRAVEL",
-    sub: "SpaceX has disrupted aerospace forever. Be part of the next chapter.",
+    sub: "SpaceX has disrupted aerospace forever. Own a piece of the company leading humanity to the stars.",
   },
   {
     image: "https://images.unsplash.com/photo-1614728894747-a83421e2b9c9?w=1920&q=90&auto=format&fit=crop",
-    headline: "THE FINAL\nFRONTIER",
-    sub: "Accredited investors now have exclusive access to pre-IPO SpaceX shares.",
+    headline: "THE IPO\nHAS LAUNCHED",
+    sub: "SpaceX went public June 12, 2026 on Nasdaq under ticker SPCX. Shares are now available to verified investors.",
   },
 ];
 
 const stats = [
-  { label: "Company Valuation", value: "$350B+" },
+  { label: "Company Valuation", value: "$1.77T" },
   { label: "Accredited Investors", value: "12,000+" },
-  { label: "Share Price", value: "$150" },
-  { label: "IPO Timeline", value: "2026" },
+  { label: "Share Price", value: "$130" },
+  { label: "Listed On Nasdaq", value: "SPCX" },
 ];
 
 const vehicles = [
@@ -334,12 +334,12 @@ const vehicles = [
 
 const faqs = [
   {
-    q: "WHO CAN INVEST IN SPACEX PRE-IPO SHARES?",
+    q: "WHO CAN INVEST IN SPACEX SHARES?",
     a: "Only accredited investors as defined by SEC regulations — individuals with $200K+ annual income or $1M+ net worth excluding primary residence.",
   },
   {
     q: "HOW ARE SHARES PRICED?",
-    a: "Share price is set by the platform and updated to reflect the latest secondary market valuation. You'll see the current price when placing an order.",
+    a: "SpaceX (SPCX) IPO-ed at $135/share on June 12, 2026. Our platform offers shares at $130 — reflecting the current post-IPO market price. You'll see the live price when placing an order.",
   },
   {
     q: "WHAT IS THE MINIMUM INVESTMENT?",
@@ -347,11 +347,11 @@ const faqs = [
   },
   {
     q: "HOW DO I RECEIVE MY SHARES?",
-    a: "After your purchase request is reviewed and confirmed by our team, shares are credited to your account and you can initiate a brokerage transfer at any time.",
+    a: "After your purchase is confirmed, shares are credited to your account. You can then initiate a transfer to your brokerage (Fidelity, Schwab, Interactive Brokers, etc.) at any time.",
   },
   {
-    q: "WHAT HAPPENS AT THE IPO?",
-    a: "When SpaceX goes public, your pre-IPO shares convert to publicly traded stock. Our platform switches to POST-IPO mode and transfers are facilitated through your registered brokerage.",
+    q: "SPACEX IS NOW PUBLIC — HOW DOES THIS AFFECT ME?",
+    a: "SpaceX listed on Nasdaq (SPCX) on June 12, 2026. Our platform now operates in post-IPO mode. Shares purchased through us are transferable to your brokerage for public trading.",
   },
 ];
 

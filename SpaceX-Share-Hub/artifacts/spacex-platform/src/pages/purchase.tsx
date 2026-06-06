@@ -38,7 +38,7 @@ export default function PurchasePage() {
     queryFn: api.getPurchases,
   });
 
-  const sharePrice = settings?.sharePrice ?? 150;
+  const sharePrice = settings?.sharePrice ?? 130;
   const requestedShares = amount ? Math.floor(Number(amount) / sharePrice) : 0;
 
   const createPurchase = useMutation({
