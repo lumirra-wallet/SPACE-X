@@ -41,23 +41,13 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/api", router);
 
 // Serve the built React frontend (production only)
-// Try multiple candidate roots to handle different Vercel runtime working directories
-const candidateRoots = [
-  path.resolve(__dirname, "../../.."),         // from artifacts/api-server/dist → repo root
-  path.resolve(__dirname, "../../../.."),      // one level deeper just in case
-  process.cwd(),                               // Vercel sometimes sets cwd to repo root
-  "/vercel/path0/SpaceX-Share-Hub",           // Vercel build-time absolute path
-];
-
-const frontendRelative = "artifacts/spacex-platform/dist/public";
-const frontendDist =
-  candidateRoots
-    .map((r) => path.join(r, frontendRelative))
-    .find((p) => existsSync(p)) ?? null;
+// FRONTEND_DIST is set by server.mjs (repo root entrypoint) using import.meta.url,
+// which is the most reliable way to get the correct absolute path on Vercel.
+const frontendDist = process.env["FRONTEND_DIST"] ?? null;
 
 logger.info({ frontendDist, __dirname, cwd: process.cwd() }, "Frontend dist resolution");
 
-if (frontendDist) {
+if (frontendDist && existsSync(frontendDist)) {
   app.use(express.static(frontendDist));
   app.get("/*splat", (_req, res) => {
     res.sendFile(path.join(frontendDist, "index.html"));
@@ -66,7 +56,7 @@ if (frontendDist) {
   app.get("/*splat", (_req, res) => {
     res.status(503).json({
       error: "Frontend not found",
-      tried: candidateRoots.map((r) => path.join(r, frontendRelative)),
+      FRONTEND_DIST: frontendDist,
       __dirname,
       cwd: process.cwd(),
     });
