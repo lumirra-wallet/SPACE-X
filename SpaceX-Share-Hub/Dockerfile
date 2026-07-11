@@ -14,7 +14,9 @@ WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@11.0.9 --activate
 
 COPY . .
-RUN pnpm install --frozen-lockfile
+# --ignore-scripts bypasses pnpm 11's interactive build-approval prompt in CI;
+# pnpm rebuild esbuild then runs esbuild's postinstall to build its native binary.
+RUN pnpm install --frozen-lockfile --ignore-scripts && pnpm rebuild esbuild
 
 # Build the frontend (outputs to artifacts/spacex-platform/dist/public)
 RUN pnpm --filter @workspace/spacex-platform run build

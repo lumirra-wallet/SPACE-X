@@ -1,5 +1,5 @@
 {
-  "installCommand": "corepack enable && corepack prepare pnpm@11.0.9 --activate && pnpm install --no-frozen-lockfile",
+  "installCommand": "corepack enable && corepack prepare pnpm@11.0.9 --activate && pnpm install --no-frozen-lockfile --ignore-scripts && pnpm rebuild esbuild",
   "buildCommand": "pnpm --filter @workspace/spacex-platform run build",
   "outputDirectory": "artifacts/spacex-platform/dist/public",
   "rewrites": [
