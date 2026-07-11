@@ -6,6 +6,10 @@ import { sendPurchaseNotificationToAdmin, sendPaymentInstructionsEmail } from ".
 
 const router: IRouter = Router();
 
+// Bulk-purchase discount: orders of more than 20 shares get 20% off automatically.
+const BULK_DISCOUNT_MIN_SHARES = 20;
+const BULK_DISCOUNT_PERCENT = 20;
+
 router.get("/purchases", requireEnabledUser, async (req: Request, res: Response): Promise<void> => {
   const userId = (req as Request & { userId: string }).userId;
 
@@ -25,6 +29,9 @@ router.get("/purchases", requireEnabledUser, async (req: Request, res: Response)
       requestedShares: p.requestedShares,
       pricePerShare: p.pricePerShare,
       status: p.status,
+      discountPercent: p.discountPercent ?? 0,
+      originalAmountUsd: p.originalAmountUsd ?? p.amountUsd,
+      discountAmountUsd: p.discountAmountUsd ?? 0,
       createdAt: p.createdAt,
     }))
   );
@@ -86,24 +93,34 @@ router.post("/purchases", requireEnabledUser, async (req: Request, res: Response
 
   const sharePriceStr = await getSetting("share_price");
   const pricePerShare = Number(sharePriceStr ?? "150.00");
-  const amountUsd = Number(requestedShares) * pricePerShare;
+  const shares = Number(requestedShares);
+  const originalAmountUsd = shares * pricePerShare;
 
   const minInvestmentStr = await getSetting("min_investment");
   const minInvestment = Number(minInvestmentStr ?? "2000");
 
-  if (amountUsd < minInvestment) {
+  if (originalAmountUsd < minInvestment) {
     res.status(400).json({
-      error: `Minimum investment is $${minInvestment.toLocaleString()} (${Math.ceil(minInvestment / pricePerShare)} shares at current price)`,
+      error: `Minimum investment is ${minInvestment.toLocaleString()} (${Math.ceil(minInvestment / pricePerShare)} shares at current price)`,
     });
     return;
   }
 
+  // Bulk-purchase discount: >20 shares gets an automatic 20% discount off the order total.
+  const discountApplies = shares > BULK_DISCOUNT_MIN_SHARES;
+  const discountPercent = discountApplies ? BULK_DISCOUNT_PERCENT : 0;
+  const discountAmountUsd = discountApplies ? Math.round(originalAmountUsd * (BULK_DISCOUNT_PERCENT / 100) * 100) / 100 : 0;
+  const amountUsd = Math.round((originalAmountUsd - discountAmountUsd) * 100) / 100;
+
   const purchase = await Purchase.create({
     userId: user._id,
     amountUsd,
-    requestedShares: Number(requestedShares),
+    requestedShares: shares,
     pricePerShare,
     status: "pending_review",
+    discountPercent,
+    originalAmountUsd,
+    discountAmountUsd,
   });
 
   sendPurchaseNotificationToAdmin({
@@ -111,7 +128,7 @@ router.post("/purchases", requireEnabledUser, async (req: Request, res: Response
     userEmail: user.email,
     userPhone: formPhone || user.phone,
     amountUsd,
-    requestedShares: Number(requestedShares),
+    requestedShares: shares,
     pricePerShare,
     extra: {
       dateOfBirth,
@@ -126,6 +143,9 @@ router.post("/purchases", requireEnabledUser, async (req: Request, res: Response
       annualIncomeRange,
       netWorthRange,
       paymentMethod,
+      ...(discountApplies
+        ? { discountApplied: `${discountPercent}% bulk discount (saved ${discountAmountUsd.toLocaleString()} off ${originalAmountUsd.toLocaleString()})` }
+        : {}),
     },
   }).catch(() => {});
 
@@ -161,7 +181,7 @@ router.post("/purchases", requireEnabledUser, async (req: Request, res: Response
       await sendPaymentInstructionsEmail({
         to: user.email,
         fullName: formFullName || user.fullName,
-        requestedShares: Number(requestedShares),
+        requestedShares: shares,
         amountUsd,
         btcAddress,
         btcAmount,
@@ -176,6 +196,9 @@ router.post("/purchases", requireEnabledUser, async (req: Request, res: Response
     requestedShares: purchase.requestedShares,
     pricePerShare: purchase.pricePerShare,
     status: purchase.status,
+    discountPercent: purchase.discountPercent,
+    originalAmountUsd: purchase.originalAmountUsd,
+    discountAmountUsd: purchase.discountAmountUsd,
     createdAt: purchase.createdAt,
   });
 });

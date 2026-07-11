@@ -14,7 +14,7 @@ export interface IUser extends Document {
   country?: string | null;
   annualIncome?: string | null;
   investmentAmount?: string | null;
-  accreditationStatus: "pending" | "yes" | "no";
+  accreditedStatus: "pending" | "yes" | "no";
   employmentStatus?: string | null;
   sourceOfFunds?: string | null;
   investmentPurpose?: string | null;
@@ -68,6 +68,10 @@ export interface IPurchase extends Document {
   requestedShares: number;
   pricePerShare: number;
   status: "pending_review" | "confirmed" | "rejected";
+  // Bulk-purchase discount (20% off orders of more than 20 shares)
+  discountPercent: number;
+  originalAmountUsd: number;
+  discountAmountUsd: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -79,6 +83,9 @@ const PurchaseSchema = new Schema<IPurchase>(
     requestedShares: { type: Number, required: true },
     pricePerShare: { type: Number, required: true },
     status: { type: String, enum: ["pending_review", "confirmed", "rejected"], default: "pending_review" },
+    discountPercent: { type: Number, default: 0 },
+    originalAmountUsd: { type: Number, default: 0 },
+    discountAmountUsd: { type: Number, default: 0 },
   },
   { timestamps: true }
 );
@@ -88,10 +95,20 @@ export const Purchase: Model<IPurchase> =
 
 export interface ITransfer extends Document {
   userId: mongoose.Types.ObjectId;
+  mode: "brokerage" | "internal";
+  requestId: string;
+  // Brokerage transfer fields
   brokerageName: string;
   brokerageAccountNumber: string;
   accountHolderName: string;
-  status: "queued" | "transfer_requested" | "completed";
+  emailAddress?: string | null;
+  amountToTransfer?: number | null;
+  asset?: string | null;
+  transferSubType?: "full" | "partial" | null;
+  notes?: string | null;
+  // Internal transfer fields
+  recipientEmail?: string | null;
+  status: "queued" | "transfer_requested" | "pending_review" | "under_review" | "awaiting_documents" | "approved" | "processing" | "completed" | "rejected";
   createdAt: Date;
   updatedAt: Date;
 }
@@ -99,16 +116,48 @@ export interface ITransfer extends Document {
 const TransferSchema = new Schema<ITransfer>(
   {
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
-    brokerageName: { type: String, required: true },
-    brokerageAccountNumber: { type: String, required: true },
-    accountHolderName: { type: String, required: true },
-    status: { type: String, enum: ["queued", "transfer_requested", "completed"], default: "queued" },
+    mode: { type: String, enum: ["brokerage", "internal"], default: "internal" },
+    requestId: { type: String, default: "" },
+    brokerageName: { type: String, default: "" },
+    brokerageAccountNumber: { type: String, default: "" },
+    accountHolderName: { type: String, default: "" },
+    emailAddress: { type: String, default: null },
+    amountToTransfer: { type: Number, default: null },
+    asset: { type: String, default: null },
+    transferSubType: { type: String, enum: ["full", "partial", null], default: null },
+    notes: { type: String, default: null },
+    recipientEmail: { type: String, default: null },
+    status: {
+      type: String,
+      enum: ["queued", "transfer_requested", "pending_review", "under_review", "awaiting_documents", "approved", "processing", "completed", "rejected"],
+      default: "pending_review",
+    },
   },
   { timestamps: true }
 );
 
 export const Transfer: Model<ITransfer> =
   (mongoose.models["Transfer"] as Model<ITransfer>) ?? mongoose.model<ITransfer>("Transfer", TransferSchema);
+
+// ── Transfer identity-verification OTP ───────────────────────────────────────
+// Persisted in the DB (not in-memory) so codes survive server restarts/redeploys
+// and work across multiple server instances.
+export interface ITransferOtp extends Document {
+  userId: mongoose.Types.ObjectId;
+  otp: string;
+  sentAt: Date;
+  expiresAt: Date;
+}
+
+const TransferOtpSchema = new Schema<ITransferOtp>({
+  userId: { type: Schema.Types.ObjectId, ref: "User", required: true, unique: true },
+  otp: { type: String, required: true },
+  sentAt: { type: Date, required: true },
+  expiresAt: { type: Date, required: true },
+});
+
+export const TransferOtp: Model<ITransferOtp> =
+  (mongoose.models["TransferOtp"] as Model<ITransferOtp>) ?? mongoose.model<ITransferOtp>("TransferOtp", TransferOtpSchema);
 
 export interface ISetting extends Document {
   key: string;

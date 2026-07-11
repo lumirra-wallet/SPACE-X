@@ -38,7 +38,15 @@ export default function PurchasePage() {
     queryFn: api.getPurchases,
   });
 
-  const sharePrice = settings?.sharePrice ?? 130;
+  const { data: quote } = useQuery({
+    queryKey: ["priceQuote"],
+    queryFn: api.getPriceQuote,
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+    retry: 1,
+  });
+
+  const sharePrice = quote?.price ?? settings?.sharePrice ?? 130;
   const requestedShares = amount ? Math.floor(Number(amount) / sharePrice) : 0;
 
   const createPurchase = useMutation({

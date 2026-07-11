@@ -11,14 +11,21 @@ function Badge({ status }: { status: string }) {
   const map: Record<string, string> = {
     confirmed: "bg-green-500/15 text-green-400 border-green-500/25",
     rejected: "bg-red-500/15 text-red-400 border-red-500/25",
-    pending_review: "bg-yellow-500/15 text-yellow-400 border-yellow-500/25",
+    pending_review: "bg-amber-500/15 text-amber-400 border-amber-500/25",
+    under_review: "bg-blue-500/15 text-blue-400 border-blue-500/25",
+    awaiting_documents: "bg-orange-500/15 text-orange-400 border-orange-500/25",
+    approved: "bg-cyan-500/15 text-cyan-400 border-cyan-500/25",
+    processing: "bg-purple-500/15 text-purple-400 border-purple-500/25",
     completed: "bg-green-500/15 text-green-400 border-green-500/25",
     transfer_requested: "bg-blue-500/15 text-blue-400 border-blue-500/25",
     queued: "bg-yellow-500/15 text-yellow-400 border-yellow-500/25",
   };
   const label: Record<string, string> = {
-    confirmed: "Confirmed", rejected: "Rejected", pending_review: "Pending",
-    completed: "Completed", transfer_requested: "Requested", queued: "Queued",
+    confirmed: "Confirmed", rejected: "Rejected",
+    pending_review: "Pending Review", under_review: "Under Review",
+    awaiting_documents: "Awaiting Docs", approved: "Approved",
+    processing: "Processing", completed: "Completed",
+    transfer_requested: "Requested", queued: "Queued",
   };
   return (
     <span className={`text-[0.65rem] px-2 py-0.5 border font-black tracking-widest uppercase ${map[status] ?? "bg-white/10 text-white/50 border-white/15"}`}
@@ -228,9 +235,19 @@ export default function AdminPage() {
   });
 
   const updateTransferMutation = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: "queued" | "transfer_requested" | "completed" }) => api.updateAdminTransferStatus(id, status),
+    mutationFn: ({ id, status }: { id: string; status: AdminTransfer["status"] }) => api.updateAdminTransferStatus(id, status),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin", "transfers"] }); toast({ title: "Transfer status updated" }); },
     onError: (e) => toast({ title: "Update failed", description: String(e), variant: "destructive" }),
+  });
+
+  const syncPriceMutation = useMutation({
+    mutationFn: api.syncPrice,
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["settings"] });
+      qc.invalidateQueries({ queryKey: ["priceQuote"] });
+      toast({ title: `Share price synced to ${data.price.toFixed(2)}` });
+    },
+    onError: (e) => toast({ title: "Sync failed — check EODHD_API_KEY", description: String(e), variant: "destructive" }),
   });
 
   const logoutMutation = useMutation({
@@ -508,7 +525,12 @@ export default function AdminPage() {
                           <p className="text-white font-medium">{p.userFullName}</p>
                           <p className="text-white/30 text-xs">{p.userEmail}</p>
                         </td>
-                        <td className={`${tdClass} text-right font-black text-white`} style={{ fontFamily: FONT }}>${Number(p.amountUsd).toLocaleString()}</td>
+                        <td className={`${tdClass} text-right font-black text-white`} style={{ fontFamily: FONT }}>
+                          ${Number(p.amountUsd).toLocaleString()}
+                          {!!p.discountPercent && (
+                            <div className="text-emerald-400 text-[0.6rem] font-semibold normal-case">-{p.discountPercent}% bulk (saved ${Number(p.discountAmountUsd ?? 0).toLocaleString()})</div>
+                          )}
+                        </td>
                         <td className={`${tdClass} text-right`}>{Number(p.requestedShares).toLocaleString()}</td>
                         <td className={`${tdClass} text-center`}><Badge status={p.status} /></td>
                         <td className={`${tdClass} text-right`}>
@@ -544,10 +566,13 @@ export default function AdminPage() {
             <Card className="p-0 overflow-hidden">
               <div className="px-5 py-4 border-b border-white/[0.08] flex items-center justify-between">
                 <p className="text-white/40 text-[0.6rem] tracking-[0.2em] uppercase" style={{ fontFamily: FONT }}>All Transfer Requests ({transfers.length})</p>
-                <div className="flex items-center gap-4 text-[0.6rem] text-white/30" style={{ fontFamily: FONT }}>
-                  <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-yellow-400 inline-block" />Queued</span>
-                  <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-blue-400 inline-block" />Requested</span>
-                  <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />Completed</span>
+                <div className="flex items-center gap-3 text-[0.6rem] text-white/30" style={{ fontFamily: FONT }}>
+                  {["Pending Review", "Under Review", "Awaiting Docs", "Approved", "Processing", "Completed", "Rejected"].map((s) => (
+                    <span key={s} className="flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full inline-block bg-white/30" />
+                      {s}
+                    </span>
+                  ))}
                 </div>
               </div>
               {transfers.length === 0 ? (
@@ -557,33 +582,60 @@ export default function AdminPage() {
                   <table className="w-full">
                     <thead>
                       <tr>
-                        {["Date", "Investor", "Brokerage", "Account #", "Holder Name", "Status", "Actions"].map((h, i) => (
-                          <th key={h} className={`${thClass} ${i >= 5 ? "text-center" : ""} ${i === 6 ? "text-right" : ""}`} style={{ fontFamily: FONT }}>{h}</th>
+                        {["Date", "Request ID", "Investor", "Type", "Destination / Recipient", "Asset", "Status", "Update Status"].map((h) => (
+                          <th key={h} className={thClass} style={{ fontFamily: FONT }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {transfers.map((t: AdminTransfer) => (
-                        <tr key={t.id} className={`hover:bg-white/[0.02] transition-colors ${t.status === "queued" ? "bg-yellow-500/[0.03]" : ""}`}>
+                        <tr key={t.id} className="hover:bg-white/[0.02] transition-colors border-b border-white/[0.04]">
                           <td className={tdClass}>{format(new Date(t.createdAt), "MMM d, yyyy")}</td>
+                          <td className={`${tdClass} font-mono text-xs text-white/50`}>{t.requestId || "—"}</td>
                           <td className={tdClass}>
                             <p className="text-white font-medium">{t.userFullName}</p>
                             <p className="text-white/30 text-xs">{t.userEmail}</p>
                           </td>
-                          <td className={tdClass}>{t.brokerageName}</td>
-                          <td className={`${tdClass} font-mono text-xs`}>{t.brokerageAccountNumber}</td>
-                          <td className={tdClass}>{t.accountHolderName}</td>
+                          <td className={tdClass}>
+                            <span className={`text-[0.6rem] px-1.5 py-0.5 border font-black uppercase tracking-widest ${t.mode === "internal" ? "bg-blue-500/10 text-blue-400 border-blue-500/20" : "bg-green-500/10 text-green-400 border-green-500/20"}`} style={{ fontFamily: FONT }}>
+                              {t.mode === "internal" ? "Internal" : "Brokerage"}
+                            </span>
+                          </td>
+                          <td className={tdClass}>
+                            {t.mode === "brokerage" ? (
+                              <div>
+                                <p className="text-white text-sm">{t.brokerageName}</p>
+                                <p className="text-white/30 text-xs font-mono">{t.brokerageAccountNumber}</p>
+                                <p className="text-white/30 text-xs">{t.accountHolderName}</p>
+                                {t.emailAddress && <p className="text-white/25 text-xs">{t.emailAddress}</p>}
+                              </div>
+                            ) : (
+                              <p className="text-white text-sm">{t.recipientEmail}</p>
+                            )}
+                          </td>
+                          <td className={tdClass}>
+                            <p className="text-white/70 text-xs">{t.asset ?? "SPCX"}</p>
+                            {t.amountToTransfer && <p className="text-white/40 text-xs">{t.amountToTransfer.toLocaleString()} units</p>}
+                            {t.transferSubType && <p className="text-white/25 text-[0.6rem] uppercase">{t.transferSubType}</p>}
+                            {t.notes && <p className="text-white/20 text-xs mt-0.5 max-w-[120px] truncate" title={t.notes}>Note: {t.notes}</p>}
+                          </td>
                           <td className={`${tdClass} text-center`}><Badge status={t.status} /></td>
                           <td className={`${tdClass} text-right`}>
-                            <div className="flex gap-2 justify-end">
-                              {t.status === "queued" && (
-                                <Btn variant="blue" onClick={() => updateTransferMutation.mutate({ id: t.id, status: "transfer_requested" })} disabled={updateTransferMutation.isPending}>Approve</Btn>
-                              )}
-                              {t.status === "transfer_requested" && (
-                                <Btn variant="success" onClick={() => updateTransferMutation.mutate({ id: t.id, status: "completed" })} disabled={updateTransferMutation.isPending}>Complete</Btn>
-                              )}
-                              {t.status === "completed" && <span className="text-white/20 text-xs">—</span>}
-                            </div>
+                            <select
+                              value={t.status}
+                              disabled={updateTransferMutation.isPending}
+                              onChange={(e) => updateTransferMutation.mutate({ id: t.id, status: e.target.value as AdminTransfer["status"] })}
+                              className="bg-white/[0.06] border border-white/[0.1] text-white text-[0.65rem] px-2 py-1.5 focus:outline-none focus:border-white/30 appearance-none cursor-pointer"
+                              style={{ fontFamily: FONT }}
+                            >
+                              <option value="pending_review" className="bg-black">Pending Review</option>
+                              <option value="under_review" className="bg-black">Under Review</option>
+                              <option value="awaiting_documents" className="bg-black">Awaiting Documents</option>
+                              <option value="approved" className="bg-black">Approved</option>
+                              <option value="processing" className="bg-black">Processing</option>
+                              <option value="completed" className="bg-black">Completed</option>
+                              <option value="rejected" className="bg-black">Rejected</option>
+                            </select>
                           </td>
                         </tr>
                       ))}
@@ -599,10 +651,36 @@ export default function AdminPage() {
         {tab === "settings" && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-lg space-y-4">
 
+            {/* Live Price Sync Tool */}
+            <Card>
+              <CardTitle>Live Price Sync</CardTitle>
+              <p className="text-white/40 text-sm mb-1">
+                Fetch the current live RKLB proxy quote from EODHD and apply its scaled value as the platform share price. Price alerts are evaluated automatically after each sync.
+              </p>
+              <p className="text-white/20 text-xs mb-4">Requires <span className="text-white/40 font-mono">EODHD_API_KEY</span> secret to be set.</p>
+              <div className="flex items-center gap-4">
+                <Btn
+                  variant="blue"
+                  onClick={() => syncPriceMutation.mutate()}
+                  disabled={syncPriceMutation.isPending}
+                >
+                  {syncPriceMutation.isPending ? "Syncing…" : "⟳ Sync Live Price"}
+                </Btn>
+                {syncPriceMutation.isSuccess && (
+                  <span className="text-green-400 text-sm font-black" style={{ fontFamily: FONT }}>
+                    → ${syncPriceMutation.data?.price.toFixed(2)}
+                  </span>
+                )}
+                {syncPriceMutation.isError && (
+                  <span className="text-red-400 text-xs">Failed — check EODHD_API_KEY</span>
+                )}
+              </div>
+            </Card>
+
             <Card>
               <CardTitle>Share Price</CardTitle>
               <p className="text-white/40 text-sm mb-4">
-                Current: <span className="text-white font-black" style={{ fontFamily: FONT }}>${settings?.sharePrice ?? 150}</span> per share.
+                Current: <span className="text-white font-black" style={{ fontFamily: FONT }}>${settings?.sharePrice ?? 150}</span> per share. Use the sync tool above or set manually below.
               </p>
               <div className="flex gap-3">
                 <Input type="number" value={sharePrice} onChange={(e) => setSharePrice(e.target.value)} placeholder={String(settings?.sharePrice ?? "150")} className="flex-1" />

@@ -1,444 +1,407 @@
-import { useState, useEffect, useRef } from "react";
-import { useLocation, useSearch } from "wouter";
+import { useState, useRef, useEffect } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, type Transfer } from "@/lib/api";
-import { useSettings } from "@/hooks/useUser";
+import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import { motion } from "framer-motion";
-import { format } from "date-fns";
-import appLogo from "@assets/xpsca_1778445100452.png";
+import { useUser } from "@/hooks/useUser";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { motion, AnimatePresence } from "framer-motion";
+import MobileTransferPage from "@/components/mobile/MobileTransferPage";
+import { BROKERS, BrokerLogo } from "@/lib/brokers";
 
-const BROKERS = [
-  "Robinhood",
-  "Fidelity",
-  "Charles Schwab",
-  "TD Ameritrade",
-  "E*TRADE",
-  "Interactive Brokers",
-  "Webull",
-  "Vanguard",
-  "Merrill Edge",
-  "Morgan Stanley",
-  "SoFi Invest",
-  "Public.com",
-  "Firstrade",
-  "TradeStation",
-  "Moomoo",
-  "Tastytrade",
-  "Ally Invest",
-  "Alpaca",
-  "Apex Clearing",
-  "Pershing (BNY Mellon)",
-  "Raymond James",
-  "Edward Jones",
-  "Stifel",
-  "LPL Financial",
-  "Wealthfront",
-  "Betterment",
-  "Stash",
-  "Acorns",
-  "Cash App Investing",
-  "Saxo Bank",
-  "eToro",
-  "Degiro",
-  "Freetrade",
-  "Trading 212",
-  "Hargreaves Lansdown",
-  "Other",
-];
+const FONT = "'Arial Black', Arial, sans-serif";
 
-function IpoCountdownLock({ ipoTargetDate }: { ipoTargetDate: string }) {
-  const calcTime = () => {
-    const diff = new Date(ipoTargetDate).getTime() - Date.now();
-    if (diff <= 0) return { days: 0, hours: 0, minutes: 0, seconds: 0, expired: true };
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-    const seconds = Math.floor((diff % (1000 * 60)) / 1000);
-    return { days, hours, minutes, seconds, expired: false };
-  };
-  const [time, setTime] = useState(calcTime);
-  const ref = useRef<ReturnType<typeof setInterval> | null>(null);
-  useEffect(() => {
-    ref.current = setInterval(() => setTime(calcTime()), 1000);
-    return () => { if (ref.current) clearInterval(ref.current); };
-  }, [ipoTargetDate]);
-  if (time.expired) return null;
+// ── Step types ────────────────────────────────────────────────────────────────
+type TransferStep = "form" | "otp" | "review" | "success";
+type TransferMode = "internal" | "brokerage";
+const OTP_RESEND_SECONDS = 10;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function Label({ children, required }: { children: React.ReactNode; required?: boolean }) {
   return (
-    <div className="mt-4">
-      <p className="text-white/20 text-[0.55rem] tracking-[0.25em] uppercase mb-2 text-center" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
-        IPO COUNTDOWN
-      </p>
-      <div className="grid grid-cols-4 gap-1.5">
-        {[
-          { label: "DAYS", value: time.days },
-          { label: "HRS", value: time.hours },
-          { label: "MIN", value: time.minutes },
-          { label: "SEC", value: time.seconds },
-        ].map(({ label, value }) => (
-          <div key={label} className="text-center">
-            <div className="border border-white/[0.08] bg-white/[0.03] py-1.5 rounded-sm">
-              <p className="text-white font-black text-lg leading-none tabular-nums" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
-                {String(value).padStart(2, "0")}
-              </p>
-            </div>
-            <p className="text-white/20 text-[0.45rem] tracking-widest uppercase mt-1" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>{label}</p>
-          </div>
-        ))}
-      </div>
-      <p className="text-white/15 text-[0.52rem] text-center mt-2 tracking-wide">
-        Expected: {new Date(ipoTargetDate).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
-      </p>
-    </div>
+    <label className="block text-white/30 text-[0.6rem] tracking-widest uppercase mb-1.5" style={{ fontFamily: FONT }}>
+      {children}{required && <span className="text-red-400 ml-0.5">*</span>}
+    </label>
   );
 }
 
-function SpaceXLogo({ className = "" }: { className?: string }) {
-  return <img src={appLogo} alt="SpaceX" className={className} />;
-}
-
-function InputField({
-  label,
-  value,
-  onChange,
-  placeholder,
-  required,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  required?: boolean;
-}) {
+function Field({ children, label, required }: { children: React.ReactNode; label: string; required?: boolean }) {
   return (
     <div>
-      <label className="block text-white/30 text-[0.6rem] tracking-widest uppercase mb-1"
-        style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
-        {label}{required && <span className="text-red-400 ml-0.5">*</span>}
-      </label>
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        required={required}
-        className="w-full bg-white/[0.04] border border-white/10 px-3 py-2 text-white text-sm focus:outline-none focus:border-white/40 placeholder:text-white/20 transition-colors"
-      />
+      <Label required={required}>{label}</Label>
+      {children}
     </div>
   );
 }
 
+const inputCls = "w-full bg-white/[0.04] border border-white/10 px-3 py-2.5 text-white text-sm focus:outline-none focus:border-white/40 placeholder:text-white/20 transition-colors rounded-none";
+
+// ── Main component ────────────────────────────────────────────────────────────
 export default function TransferPage() {
+  const isMobile = useIsMobile();
   const [, navigate] = useLocation();
-  const search = useSearch();
-  const { data: settings } = useSettings();
   const { toast } = useToast();
   const qc = useQueryClient();
+  const { user } = useUser();
 
-  const prefillShares = new URLSearchParams(search).get("shares") ?? "";
+  const [step, setStep] = useState<TransferStep>("form");
 
-  const [brokerage, setBrokerage] = useState("");
-  const [accountNumber, setAccountNumber] = useState("");
-  const [holderName, setHolderName] = useState("");
-  const [shareQty, setShareQty] = useState(prefillShares);
+  const [transferMode, setTransferMode] = useState<TransferMode>("internal");
+  const [recipientEmail, setRecipientEmail] = useState("");
+  const [brokerageName, setBrokerageName] = useState("");
+  const [accountHolderName, setAccountHolderName] = useState("");
+  const [brokerageAccountNumber, setBrokerageAccountNumber] = useState("");
+  const [amount, setAmount] = useState("");
+  const [asset] = useState("SPCX");
+  const [transferSubType, setTransferSubType] = useState<"full" | "partial">("full");
+  const [notes, setNotes] = useState("");
+
+  const [otp, setOtp] = useState("");
+  const [otpSending, setOtpSending] = useState(false);
+  const [otpCooldown, setOtpCooldown] = useState(0);
+  const otpRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const [submitting, setSubmitting] = useState(false);
-
-  const isPostIpo = settings?.systemMode === "post_ipo";
+  const [submittedRequestId, setSubmittedRequestId] = useState<string | null>(null);
 
   const { data: transfers = [] } = useQuery({
     queryKey: ["transfers"],
     queryFn: api.getTransfers,
-    enabled: isPostIpo,
-    refetchInterval: 15_000,
+    refetchInterval: 30_000,
   });
 
   const createTransfer = useMutation({
-    mutationFn: (body: { brokerageName: string; brokerageAccountNumber: string; accountHolderName: string }) =>
-      api.createTransfer(body),
+    mutationFn: (body: Parameters<typeof api.createTransfer>[0]) => api.createTransfer(body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["transfers"] }),
   });
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!brokerage || !accountNumber || !holderName || !shareQty) {
-      toast({ title: "All fields are required", variant: "destructive" });
+  useEffect(() => () => { if (otpRef.current) clearInterval(otpRef.current); }, []);
+
+  // ── OTP helpers ──
+  function startOtpCooldown() {
+    setOtpCooldown(OTP_RESEND_SECONDS);
+    otpRef.current = setInterval(() => {
+      setOtpCooldown((c) => { if (c <= 1) { clearInterval(otpRef.current!); return 0; } return c - 1; });
+    }, 1000);
+  }
+
+  async function handleSendOtp() {
+    setOtpSending(true);
+    try {
+      await api.sendTransferOtp();
+      startOtpCooldown();
+      toast({ title: "Code sent", description: `A 6-digit code was sent to ${user?.email ?? "your email"}.` });
+    } catch (e) {
+      toast({ title: "Failed to send code", description: String(e), variant: "destructive" });
+    } finally { setOtpSending(false); }
+  }
+
+  // ── Validation ──
+  function validateForm() {
+    if (transferMode === "internal") {
+      if (!recipientEmail.trim() || !recipientEmail.includes("@")) {
+        toast({ title: "Valid recipient email is required", variant: "destructive" });
+        return false;
+      }
+    } else {
+      if (!brokerageName.trim()) {
+        toast({ title: "Select a destination broker", variant: "destructive" });
+        return false;
+      }
+      if (!accountHolderName.trim()) {
+        toast({ title: "Account holder name is required", variant: "destructive" });
+        return false;
+      }
+      if (!brokerageAccountNumber.trim()) {
+        toast({ title: "Brokerage account number is required", variant: "destructive" });
+        return false;
+      }
+    }
+    return true;
+  }
+
+  async function handleProceedToOtp() {
+    if (!validateForm()) return;
+    setStep("otp");
+    setOtpSending(true);
+    try {
+      await api.sendTransferOtp();
+      startOtpCooldown();
+    } catch (e) {
+      toast({ title: "Failed to send verification code", description: String(e), variant: "destructive" });
+    } finally { setOtpSending(false); }
+  }
+
+  function handleOtpVerified() {
+    if (!otp.trim() || otp.trim().length !== 6) {
+      toast({ title: "Enter the 6-digit code", variant: "destructive" });
       return;
     }
-    const qty = Number(shareQty);
-    if (!qty || qty <= 0 || !Number.isInteger(qty)) {
-      toast({ title: "Invalid share quantity", description: "Please enter a whole number greater than 0.", variant: "destructive" });
-      return;
-    }
+    setStep("review");
+  }
+
+  async function handleSubmit() {
     setSubmitting(true);
     try {
-      await createTransfer.mutateAsync({
-        brokerageName: brokerage,
-        brokerageAccountNumber: accountNumber,
-        accountHolderName: holderName,
+      const result = await createTransfer.mutateAsync({
+        otpCode: otp.trim(),
+        mode: transferMode,
+        recipientEmail: transferMode === "internal" ? recipientEmail.trim() : undefined,
+        brokerageName: transferMode === "brokerage" ? brokerageName.trim() : undefined,
+        accountHolderName: transferMode === "brokerage" ? accountHolderName.trim() : undefined,
+        brokerageAccountNumber: transferMode === "brokerage" ? brokerageAccountNumber.trim() : undefined,
+        amountToTransfer: amount ? Number(amount) : undefined,
+        asset,
+        transferSubType,
+        notes: notes.trim() || undefined,
       });
-      toast({
-        title: isPostIpo ? "Transfer request submitted" : "Transfer request queued",
-        description: isPostIpo
-          ? "Our team will process your brokerage transfer within 2–3 business days."
-          : "Your request is queued and will activate automatically when the SpaceX IPO goes live. The admin has been notified.",
-      });
-      setBrokerage("");
-      setAccountNumber("");
-      setHolderName("");
-      setShareQty("");
-    } catch (e) {
-      toast({ title: "Submission failed", description: String(e), variant: "destructive" });
-    } finally {
-      setSubmitting(false);
-    }
+      setSubmittedRequestId(result.requestId);
+      setStep("success");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.toLowerCase().includes("verification") || msg.toLowerCase().includes("code")) {
+        toast({ title: "Verification failed", description: msg, variant: "destructive" });
+        setStep("otp");
+      } else {
+        toast({ title: "Submission failed", description: msg, variant: "destructive" });
+      }
+    } finally { setSubmitting(false); }
+  }
+
+  function resetAll() {
+    setStep("form");
+    setTransferMode("internal");
+    setRecipientEmail(""); setBrokerageName(""); setAccountHolderName(""); setBrokerageAccountNumber("");
+    setAmount(""); setNotes(""); setTransferSubType("full");
+    setOtp(""); setSubmittedRequestId(null);
+  }
+
+  function handleBack() {
+    if (step === "form") { navigate("/dashboard"); return; }
+    if (step === "success") { resetAll(); return; }
+    if (step === "review") { setStep("otp"); return; }
+    if (step === "otp") { setStep("form"); return; }
+    setStep("form");
+  }
+
+  if (isMobile) {
+    return <MobileTransferPage />;
   }
 
   return (
     <div className="min-h-screen bg-black text-white">
-      {/* Fixed header */}
+      {/* Header */}
       <div className="fixed top-0 left-0 right-0 z-40 flex items-center justify-between px-4 h-12 border-b border-white/[0.08] bg-black/95 backdrop-blur-xl">
-        <button
-          onClick={() => navigate("/dashboard")}
-          className="flex items-center gap-1.5 text-white/50 hover:text-white transition-colors"
-        >
+        <button onClick={handleBack} className="flex items-center gap-1.5 text-white/50 hover:text-white transition-colors">
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
             <path d="M12 4l-6 6 6 6" />
           </svg>
-          <span className="text-[0.6rem] tracking-widest uppercase" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
-            Dashboard
+          <span className="text-[0.6rem] tracking-widest uppercase" style={{ fontFamily: FONT }}>
+            {step === "form" ? "Dashboard" : step === "success" ? "New Transfer" : "Back"}
           </span>
         </button>
-        <SpaceXLogo className="h-7 w-auto" />
+        <p className="text-white/20 text-[0.6rem] tracking-[0.25em] uppercase" style={{ fontFamily: FONT }}>Transfer</p>
         <div className="w-16" />
       </div>
 
-      {/* Transfer form — always visible, padded for fixed header + bottom nav */}
-      <div className="pt-14 pb-24 px-3 max-w-4xl mx-auto">
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
+      <div className="pt-14 pb-24 px-4 max-w-2xl mx-auto">
+        <AnimatePresence mode="wait">
 
-          {/* Page header */}
-          <div className="mb-1 pt-2">
-            <div className="flex items-center gap-2 mb-2">
-              {isPostIpo ? (
-                <span className="inline-flex items-center gap-1.5 text-[0.55rem] font-black tracking-widest text-green-400 uppercase border border-green-500/30 px-2 py-0.5 bg-green-500/10"
-                  style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
-                  <span className="w-1 h-1 bg-green-400 rounded-full animate-pulse" />
-                  SpaceX is now public
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 text-[0.55rem] font-black tracking-widest text-amber-400 uppercase border border-amber-500/30 px-2 py-0.5 bg-amber-500/10"
-                  style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
-                  <span className="w-1 h-1 bg-amber-400 rounded-full animate-pulse" />
-                  Pre-IPO mode
-                </span>
-              )}
-            </div>
-            <p className="text-white/25 text-[0.55rem] tracking-[0.25em] uppercase mb-0.5"
-              style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
-              Brokerage Transfer
-            </p>
-            <h1 className="text-white font-black text-lg md:text-2xl tracking-wide"
-              style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
-              TRANSFER CENTER
-            </h1>
-          </div>
-
-          <div className="grid md:grid-cols-2 gap-4">
-
-            {/* Transfer form */}
-            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
-              <div className={`relative overflow-hidden rounded-xl border bg-gradient-to-br from-white/[0.06] to-white/[0.02] backdrop-blur-md p-4 h-full ${isPostIpo ? "border-green-500/20" : "border-amber-500/20"}`}>
-                <div className={`absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent to-transparent ${isPostIpo ? "via-green-400/20" : "via-amber-400/20"}`} />
-
-                {/* Pre-IPO amber info banner */}
-                {!isPostIpo && (
-                  <div className="mb-3 flex items-start gap-2 px-3 py-2 border border-amber-500/25 bg-amber-500/[0.07] rounded-sm">
-                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5">
-                      <circle cx="10" cy="10" r="8" />
-                      <line x1="10" y1="6" x2="10" y2="10.5" strokeWidth="2" strokeLinecap="round" />
-                      <circle cx="10" cy="13.5" r="0.8" fill="currentColor" stroke="none" />
-                    </svg>
-                    <p className="text-amber-300/80 text-[0.6rem] leading-relaxed tracking-wide">
-                      <span className="font-black text-amber-400" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>PRE-IPO MODE</span> — Your request will be queued and activated the moment the SpaceX IPO goes live.
-                    </p>
-                  </div>
-                )}
-
-                <p className="text-white/30 text-[0.6rem] tracking-widest uppercase mb-3"
-                  style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
-                  Submit Transfer Request
+          {/* ── FORM ── */}
+          {step === "form" && (
+            <motion.div key="form" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="pt-6 space-y-4">
+              <div className="mb-5">
+                <p className="text-white/20 text-[0.55rem] tracking-[0.3em] uppercase mb-1" style={{ fontFamily: FONT }}>Transfer Center</p>
+                <h1 className="text-white font-black text-2xl" style={{ fontFamily: FONT }}>
+                  {transferMode === "internal" ? "TRANSFER TO INVESTOR" : "TRANSFER TO BROKERAGE"}
+                </h1>
+                <p className="text-white/35 text-sm mt-2">
+                  {transferMode === "internal"
+                    ? "Transfer your SPCX shares to another investor registered on this platform."
+                    : "Transfer your SPCX shares directly to your external brokerage account."}
                 </p>
-
-                <form onSubmit={handleSubmit} className="space-y-3">
-                  {/* Broker dropdown */}
-                  <div>
-                    <label className="block text-white/30 text-[0.6rem] tracking-widest uppercase mb-1"
-                      style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
-                      Brokerage<span className="text-red-400 ml-0.5">*</span>
-                    </label>
-                    <select
-                      value={brokerage}
-                      onChange={(e) => setBrokerage(e.target.value)}
-                      required
-                      className="w-full bg-white/[0.04] border border-white/10 px-3 py-2 text-white text-sm focus:outline-none focus:border-white/40 transition-colors appearance-none cursor-pointer"
-                      style={{
-                        backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23ffffff40'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E\")",
-                        backgroundRepeat: "no-repeat",
-                        backgroundPosition: "right 10px center",
-                        backgroundSize: "14px",
-                      }}
-                    >
-                      <option value="" disabled className="bg-zinc-900">Select your broker…</option>
-                      {BROKERS.map((b) => (
-                        <option key={b} value={b} className="bg-zinc-900">{b}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <InputField
-                    label="Account Number"
-                    value={accountNumber}
-                    onChange={setAccountNumber}
-                    placeholder="Your brokerage account number"
-                    required
-                  />
-                  <InputField
-                    label="Account Holder Name"
-                    value={holderName}
-                    onChange={setHolderName}
-                    placeholder="Full name on the account"
-                    required
-                  />
-
-                  {/* Share quantity */}
-                  <div>
-                    <label className="block text-white/30 text-[0.6rem] tracking-widest uppercase mb-1"
-                      style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
-                      Shares to Transfer<span className="text-red-400 ml-0.5">*</span>
-                    </label>
-                    <input
-                      type="number"
-                      min={1}
-                      step={1}
-                      value={shareQty}
-                      onChange={(e) => setShareQty(e.target.value)}
-                      placeholder="e.g. 500"
-                      required
-                      className="w-full bg-white/[0.04] border border-white/10 px-3 py-2 text-white text-sm focus:outline-none focus:border-white/40 placeholder:text-white/20 transition-colors"
-                    />
-                    <p className="text-white/20 text-[0.6rem] mt-1">Whole shares only.</p>
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={submitting}
-                    className="w-full bg-white text-black font-black py-3 text-xs tracking-widest uppercase hover:bg-white/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                    style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}
-                  >
-                    {submitting ? "SUBMITTING..." : "REQUEST TRANSFER ›"}
-                  </button>
-                </form>
-
-                <div className="mt-3 p-3 border border-white/[0.07] bg-white/[0.02]">
-                  <p className="text-white/25 text-[0.6rem] leading-relaxed">
-                    Our operations team will contact you within 2–3 business days to coordinate the transfer.
-                  </p>
-                </div>
-
-                {/* Countdown (pre-IPO only, shown inside form card on mobile to avoid scroll) */}
-                {!isPostIpo && settings?.ipoTargetDate && (
-                  <IpoCountdownLock ipoTargetDate={settings.ipoTargetDate} />
-                )}
               </div>
-            </motion.div>
 
-            {/* Transfer history */}
-            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-              <div className="relative overflow-hidden rounded-xl border border-white/[0.08] bg-gradient-to-b from-white/[0.04] to-transparent backdrop-blur-sm p-4 h-full">
-                <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
-                <p className="text-white/30 text-[0.6rem] tracking-widest uppercase mb-3"
-                  style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
-                  Transfer Requests
-                </p>
-                {(transfers as Transfer[]).length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-8 text-center">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" className="w-8 h-8 text-white/10 mb-2">
-                      <path d="M3 7h14m0 0-3-3m3 3-3 3" /><path d="M21 17H7m0 0 3-3m-3 3 3 3" />
-                    </svg>
-                    <p className="text-white/25 text-xs tracking-wide"
-                      style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
-                      No transfer requests yet
-                    </p>
-                  </div>
+              <Field label="Destination" required>
+                <div className="grid grid-cols-2 gap-2">
+                  {(["internal", "brokerage"] as const).map((m) => (
+                    <button key={m} type="button" onClick={() => setTransferMode(m)}
+                      className={`py-2.5 text-[0.65rem] font-black tracking-widest uppercase border transition-colors ${transferMode === m ? "bg-white text-black border-white" : "border-white/10 text-white/35 hover:border-white/30 hover:text-white/60"}`}
+                      style={{ fontFamily: FONT }}>
+                      {m === "internal" ? "Another Investor" : "External Brokerage"}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+
+              <div className="space-y-3 mt-3">
+                {transferMode === "internal" ? (
+                  <Field label="Recipient Email" required>
+                    <input type="email" value={recipientEmail} onChange={(e) => setRecipientEmail(e.target.value)} placeholder="Registered email of the recipient investor" className={inputCls} />
+                  </Field>
                 ) : (
-                  <div className="space-y-2">
-                    {(transfers as Transfer[]).map((t) => (
-                      <div key={t.id} className="rounded-lg border border-white/[0.07] bg-white/[0.02] p-3">
-                        <div className="flex items-center justify-between mb-1.5">
-                          <span className="font-black text-sm text-white"
-                            style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
-                            {t.brokerageName}
-                          </span>
-                          {t.status === "completed" ? (
-                            <span className="text-[0.55rem] font-black tracking-widest uppercase bg-green-500/15 text-green-400 border border-green-500/25 px-2 py-0.5"
-                              style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
-                              Completed
-                            </span>
-                          ) : (
-                            <span className="text-[0.55rem] font-black tracking-widest uppercase bg-blue-500/15 text-blue-400 border border-blue-500/25 px-2 py-0.5"
-                              style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
-                              Requested
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-white/30 text-xs">Acct: {t.brokerageAccountNumber}</p>
-                        <p className="text-white/30 text-xs">Holder: {t.accountHolderName}</p>
-                        <p className="text-white/20 text-xs mt-1">
-                          {format(new Date(t.createdAt), "MMM d, yyyy")}
-                        </p>
+                  <>
+                    <Field label="Destination Broker" required>
+                      <div className="grid grid-cols-4 sm:grid-cols-5 gap-2 max-h-52 overflow-y-auto pr-1">
+                        {BROKERS.map((b) => (
+                          <button key={b.domain} type="button" onClick={() => setBrokerageName(b.name)}
+                            title={b.name}
+                            className={`aspect-square p-1.5 rounded-md border flex items-center justify-center bg-white transition-colors ${brokerageName === b.name ? "border-white ring-2 ring-white/70" : "border-white/10 hover:border-white/40"}`}>
+                            <BrokerLogo name={b.name} domain={b.domain} fallbackUrl={b.logoUrl} />
+                          </button>
+                        ))}
                       </div>
+                      {brokerageName && (
+                        <p className="text-white/50 text-xs mt-1.5">Selected: <span className="text-white font-semibold">{brokerageName}</span></p>
+                      )}
+                    </Field>
+                    <Field label="Account Holder Name" required>
+                      <input type="text" value={accountHolderName} onChange={(e) => setAccountHolderName(e.target.value)} placeholder="Full name on the brokerage account" className={inputCls} />
+                    </Field>
+                    <Field label="Brokerage Account Number" required>
+                      <input type="text" value={brokerageAccountNumber} onChange={(e) => setBrokerageAccountNumber(e.target.value)} placeholder="Your account number at the destination broker" className={inputCls} />
+                    </Field>
+                  </>
+                )}
+                <Field label="Asset">
+                  <input type="text" value="SPCX" readOnly className={`${inputCls} opacity-50 cursor-not-allowed`} />
+                </Field>
+                <Field label="Amount / Shares">
+                  <input type="number" min={0} step="any" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Number of shares (leave blank for full transfer)" className={inputCls} />
+                </Field>
+                <Field label="Transfer Type" required>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(["full", "partial"] as const).map((t) => (
+                      <button key={t} type="button" onClick={() => setTransferSubType(t)}
+                        className={`py-2.5 text-[0.65rem] font-black tracking-widest uppercase border transition-colors ${transferSubType === t ? "bg-white text-black border-white" : "border-white/10 text-white/35 hover:border-white/30 hover:text-white/60"}`}
+                        style={{ fontFamily: FONT }}>
+                        {t === "full" ? "Full Transfer" : "Partial Transfer"}
+                      </button>
                     ))}
                   </div>
-                )}
+                </Field>
+                <Field label="Notes (Optional)">
+                  <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Any additional notes" className={`${inputCls} resize-none`} />
+                </Field>
+              </div>
+              <button onClick={handleProceedToOtp} className="w-full bg-white text-black font-black py-3 text-xs tracking-widest uppercase hover:bg-white/90 transition-colors" style={{ fontFamily: FONT }}>
+                CONTINUE — VERIFY IDENTITY ›
+              </button>
+
+              <button onClick={() => { navigate("/history?tab=transfers"); }} className="w-full text-center text-white/40 hover:text-white text-[0.65rem] tracking-widest uppercase underline underline-offset-2 transition-colors pt-2" style={{ fontFamily: FONT }}>
+                View Transfer History ›
+              </button>
+            </motion.div>
+          )}
+
+          {/* ── OTP ── */}
+          {step === "otp" && (
+            <motion.div key="otp" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="pt-10 flex flex-col items-center text-center space-y-6">
+              <div className="w-14 h-14 rounded-full bg-white/[0.06] border border-white/15 flex items-center justify-center">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-7 h-7 text-white/60">
+                  <rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                </svg>
+              </div>
+              <div>
+                <h2 className="text-white font-black text-xl mb-2" style={{ fontFamily: FONT }}>VERIFY YOUR IDENTITY</h2>
+                <p className="text-white/40 text-sm max-w-xs mx-auto">
+                  {otpSending ? "Sending code…" : `A 6-digit code was sent to ${user?.email ?? "your email"}. Enter it to continue.`}
+                </p>
+              </div>
+              <div className="w-full max-w-xs space-y-3">
+                <input type="text" inputMode="numeric" maxLength={6} value={otp}
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  placeholder="000000"
+                  className="w-full bg-white/[0.05] border border-white/15 px-4 py-4 text-white text-2xl font-black tracking-[1em] text-center focus:outline-none focus:border-white/40 transition-colors"
+                  style={{ fontFamily: FONT }}
+                />
+                <button onClick={handleOtpVerified} disabled={otp.length < 6}
+                  className="w-full bg-white text-black font-black py-3 text-xs tracking-widest uppercase hover:bg-white/90 transition-colors disabled:opacity-40"
+                  style={{ fontFamily: FONT }}>
+                  VERIFY CODE ›
+                </button>
+                <button onClick={handleSendOtp} disabled={otpCooldown > 0 || otpSending} className="text-white/35 text-xs hover:text-white/60 transition-colors disabled:opacity-40">
+                  {otpCooldown > 0 ? `Resend in ${otpCooldown}s` : "Resend code"}
+                </button>
               </div>
             </motion.div>
-          </div>
-        </motion.div>
-      </div>
+          )}
 
-      {/* Mobile bottom navigation — same glass pill as dashboard */}
-      <nav className="md:hidden fixed left-3 right-3 z-40" style={{ bottom: 'max(0.75rem, calc(env(safe-area-inset-bottom, 0px) + 0.4rem))' }}>
-        <div className="relative bg-black/90 backdrop-blur-xl rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.9)] border border-white/[0.12]">
-          <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent rounded-t-2xl" />
-          <div className="flex items-stretch justify-around px-1 py-1">
-            {[
-              { label: "Home", path: "/dashboard", active: false,
-                icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.3" className="w-4 h-4"><circle cx="12" cy="12" r="8.5" strokeWidth="0.7"/><circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/><line x1="12" y1="3.5" x2="12" y2="8"/><line x1="12" y1="16" x2="12" y2="20.5"/><line x1="3.5" y1="12" x2="8" y2="12"/><line x1="16" y1="12" x2="20.5" y2="12"/></svg> },
-              { label: "Portfolio", path: "/dashboard", active: false,
-                icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.3" className="w-4 h-4"><line x1="3" y1="20.5" x2="21" y2="20.5" strokeWidth="0.6" strokeOpacity="0.45"/><line x1="3" y1="20.5" x2="3" y2="5" strokeWidth="0.6" strokeOpacity="0.45"/><polyline points="3,18 7,13 11,15.5 19,5.5" strokeWidth="1.6"/><circle cx="19" cy="5.5" r="1.6" fill="currentColor" stroke="none"/></svg> },
-              { label: "Buy", path: "/dashboard", active: false,
-                icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.3" className="w-4 h-4"><polygon points="12,3 20.5,7.5 20.5,16.5 12,21 3.5,16.5 3.5,7.5"/><line x1="12" y1="9" x2="12" y2="15" strokeWidth="1.5"/><line x1="9" y1="12" x2="15" y2="12" strokeWidth="1.5"/></svg> },
-              { label: "Transfer", path: "/transfer", active: true,
-                icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.3" className="w-4 h-4"><path d="M3 7h14m0 0-3-3m3 3-3 3"/><path d="M21 17H7m0 0 3-3m-3 3 3 3"/></svg> },
-              { label: "Apps", path: "/dashboard", active: false,
-                icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.3" className="w-4 h-4"><rect x="3" y="3" width="8" height="8"/><rect x="13" y="3" width="8" height="8"/><rect x="3" y="13" width="8" height="8"/><rect x="13" y="13" width="8" height="8"/></svg> },
-            ].map(({ label, path, active, icon }) => (
-              <button
-                key={label}
-                onClick={() => navigate(path)}
-                className={`relative flex flex-col items-center gap-0.5 py-2 px-1 flex-1 rounded-xl transition-all ${
-                  active
-                    ? "text-white bg-white/[0.12]"
-                    : "text-white/35 hover:text-white/65 hover:bg-white/[0.05]"
-                }`}
-              >
-                {icon}
-                <span className="text-[0.5rem] tracking-widest uppercase" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>{label}</span>
+          {/* ── REVIEW ── */}
+          {step === "review" && (
+            <motion.div key="review" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="pt-6 space-y-4">
+              <div className="mb-5">
+                <p className="text-white/20 text-[0.55rem] tracking-[0.3em] uppercase mb-1" style={{ fontFamily: FONT }}>Review & Confirm</p>
+                <h1 className="text-white font-black text-xl" style={{ fontFamily: FONT }}>CONFIRM TRANSFER</h1>
+              </div>
+
+              {(() => {
+                const reviewItems = [
+                  ...(transferMode === "internal"
+                    ? [{ label: "Recipient Email", value: recipientEmail }]
+                    : [
+                        { label: "Destination Broker", value: brokerageName },
+                        { label: "Account Holder", value: accountHolderName },
+                        { label: "Account Number", value: brokerageAccountNumber },
+                      ]),
+                  { label: "Asset", value: asset },
+                  { label: "Amount", value: amount || "All holdings" },
+                  { label: "Transfer Type", value: transferSubType === "full" ? "Full Transfer" : "Partial Transfer" },
+                  ...(notes ? [{ label: "Notes", value: notes }] : []),
+                ];
+                return (
+                  <div className="border border-white/[0.1] bg-white/[0.03]">
+                    <div className="divide-y divide-white/[0.05]">
+                      {reviewItems.map(({ label, value }) => (
+                        <div key={label} className="flex items-center justify-between px-4 py-2.5">
+                          <p className="text-white/30 text-[0.62rem] tracking-wide uppercase" style={{ fontFamily: FONT }}>{label}</p>
+                          <p className="text-white text-xs font-semibold">{value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <button onClick={handleSubmit} disabled={submitting}
+                className="w-full bg-white text-black font-black py-3 text-xs tracking-widest uppercase hover:bg-white/90 transition-colors disabled:opacity-40"
+                style={{ fontFamily: FONT }}>
+                {submitting ? "SUBMITTING…" : "SUBMIT TRANSFER REQUEST ›"}
               </button>
-            ))}
-          </div>
-        </div>
-      </nav>
+            </motion.div>
+          )}
+
+          {/* ── SUCCESS ── */}
+          {step === "success" && (
+            <motion.div key="success" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="pt-16 flex flex-col items-center text-center space-y-5">
+              <div className="w-16 h-16 rounded-full bg-green-500/15 border border-green-500/30 flex items-center justify-center">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-8 h-8 text-green-400">
+                  <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </div>
+              <div>
+                <h2 className="text-white font-black text-xl mb-2" style={{ fontFamily: FONT }}>TRANSFER REQUEST SUBMITTED</h2>
+                <p className="text-white/40 text-sm max-w-xs mx-auto">We'll email you at every stage — pending, under review, approved, and completed — so you always know where your transfer stands.</p>
+              </div>
+              {submittedRequestId && (
+                <div className="border border-white/10 px-4 py-2.5 rounded-sm">
+                  <p className="text-white/25 text-[0.6rem] tracking-[0.2em] uppercase mb-1" style={{ fontFamily: FONT }}>Reference</p>
+                  <p className="text-white font-mono text-sm tracking-wider">{submittedRequestId}</p>
+                </div>
+              )}
+              <div className="w-full max-w-xs space-y-2 mt-4">
+                <button onClick={resetAll} className="w-full border border-white/15 text-white/60 font-black py-2.5 text-xs tracking-widest uppercase hover:border-white/30 hover:text-white transition-colors" style={{ fontFamily: FONT }}>
+                  NEW TRANSFER
+                </button>
+                <button onClick={() => navigate("/dashboard")} className="w-full bg-white text-black font-black py-2.5 text-xs tracking-widest uppercase hover:bg-white/90 transition-colors" style={{ fontFamily: FONT }}>
+                  BACK TO DASHBOARD
+                </button>
+              </div>
+            </motion.div>
+          )}
+
+        </AnimatePresence>
+      </div>
     </div>
   );
 }

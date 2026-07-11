@@ -9,6 +9,7 @@ import adminRouter from "./admin";
 import certificateRouter from "./certificate";
 import alertsRouter from "./alerts";
 import priceRouter from "./price";
+import logosRouter from "./logos";
 
 const router: IRouter = Router();
 
@@ -22,5 +23,6 @@ router.use(adminRouter);
 router.use(certificateRouter);
 router.use(alertsRouter);
 router.use(priceRouter);
+router.use(logosRouter);
 
 export default router;

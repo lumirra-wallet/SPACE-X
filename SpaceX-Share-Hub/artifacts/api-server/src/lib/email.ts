@@ -137,13 +137,6 @@ type EmailAttachment = {
   cid?: string;
 };
 
-const LOGO_ATTACHMENT: EmailAttachment = {
-  filename: "logo.png",
-  content: Buffer.from(logoBase64, "base64"),
-  contentType: "image/png",
-  cid: "spacex-logo",
-};
-
 const LOGO_URL = `${process.env.PLATFORM_URL || "https://www.spacexrocket.space"}/logo.png`;
 
 // ─── Main send function ───────────────────────────────────────────────────────
@@ -156,8 +149,9 @@ async function sendEmail(options: {
   attachments?: EmailAttachment[];
 }) {
   if (!useResend() && (!process.env.SMTP_USER || !process.env.SMTP_PASS)) {
-    logger.warn({ to: options.to, subject: options.subject }, "No email transport configured — skipping email");
-    return;
+    const msg = "No email transport configured — set RESEND_API_KEY or SMTP_USER + SMTP_PASS";
+    logger.error({ to: options.to, subject: options.subject }, msg);
+    throw new Error(msg);
   }
   try {
     // For Resend use hosted logo URL (no CID). For SMTP include CID inline attachment.
@@ -172,12 +166,17 @@ async function sendEmail(options: {
         subject: options.subject,
         html: options.html,
         text: options.text,
-        attachments: [LOGO_ATTACHMENT, ...extraAttachments],
+        // Logo is rendered inline in the HTML via LOGO_URL (a hosted image),
+        // not attached as a file — recipients no longer see a logo.png attachment.
+        attachments: extraAttachments,
       });
     }
     logger.info({ to: options.to, subject: options.subject, transport: useResend() ? "resend" : "smtp" }, "Email sent");
   } catch (err) {
+    // Re-throw so calling routes can return a proper error response to the client
+    // instead of silently accepting the request while email was never sent.
     logger.error({ err, to: options.to, subject: options.subject }, "Failed to send email");
+    throw err;
   }
 }
 
@@ -453,6 +452,7 @@ export async function sendPurchaseNotificationToAdmin(data: {
     annualIncomeRange?: string;
     netWorthRange?: string;
     paymentMethod?: string;
+    discountApplied?: string;
   };
 }) {
   const e = data.extra ?? {};
@@ -471,9 +471,10 @@ export async function sendPurchaseNotificationToAdmin(data: {
       <h1 style="margin:0 0 18px;font-size:18px;font-weight:700;color:#1a1a1a;">New Purchase Request</h1>
       <p style="margin:0 0 4px;font-size:10px;letter-spacing:2px;color:#9aa0a6;text-transform:uppercase;">Investment</p>
       <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:16px;">
-        ${row("Amount", `$${data.amountUsd.toLocaleString()}`)}
+        ${row("Amount", `${data.amountUsd.toLocaleString()}`)}
         ${row("Shares", data.requestedShares.toLocaleString())}
-        ${row("Price/Share", `$${data.pricePerShare.toLocaleString()}`)}
+        ${row("Price/Share", `${data.pricePerShare.toLocaleString()}`)}
+        ${row("Bulk Discount", e.discountApplied)}
         ${row("Payment Method", e.paymentMethod)}
         ${row("Source of Funds", e.sourceOfFunds)}
       </table>
@@ -583,27 +584,131 @@ export async function sendPriceAlertEmail(to: string, fullName: string, targetPr
 export async function sendTransferRequestNotificationToAdmin(data: {
   userFullName: string;
   userEmail: string;
-  brokerageName: string;
-  brokerageAccountNumber: string;
-  accountHolderName: string;
-  isQueued: boolean;
+  requestId: string;
+  mode: "brokerage" | "internal";
+  brokerageName?: string;
+  brokerageAccountNumber?: string;
+  accountHolderName?: string;
+  emailAddress?: string | null;
+  amountToTransfer?: number | null;
+  asset?: string | null;
+  transferSubType?: "full" | "partial" | null;
+  notes?: string | null;
+  recipientEmail?: string | null;
 }) {
+  function row(label: string, value: string | null | undefined) {
+    if (!value) return "";
+    return `<tr><td style="padding:5px 0;font-size:11px;color:#6b7280;width:160px;vertical-align:top;">${label}</td><td style="font-size:11px;font-weight:600;color:#1a1a1a;">${value}</td></tr>`;
+  }
+  const isBrokerage = data.mode === "brokerage";
+  const subject = isBrokerage
+    ? `Transfer Request — ${data.userFullName} → ${data.brokerageName} [${data.requestId}]`
+    : `Internal Transfer Request — ${data.userFullName} → ${data.recipientEmail} [${data.requestId}]`;
+
   await sendEmail({
     to: ADMIN_EMAIL,
-    subject: `Brokerage Transfer Request — ${data.userFullName} to ${data.brokerageName}`,
+    subject,
     html: layout(`
       <p style="margin:0 0 4px;font-size:10px;letter-spacing:3px;color:#9aa0a6;text-transform:uppercase;">Admin Alert</p>
-      <h1 style="margin:0 0 14px;font-size:18px;font-weight:700;color:#1a1a1a;">Brokerage Transfer Request</h1>
-      <p style="margin:0 0 16px;font-size:11px;color:#6b7280;">${data.isQueued ? "Pre-IPO Queued" : "Post-IPO Transfer"}</p>
+      <h1 style="margin:0 0 6px;font-size:18px;font-weight:700;color:#1a1a1a;">${isBrokerage ? "Brokerage Transfer Request" : "Internal Transfer Request"}</h1>
+      <p style="margin:0 0 16px;font-size:11px;color:#6b7280;">Request ID: <strong style="color:#1a1a1a;">${data.requestId}</strong> &bull; Status: <strong style="color:#1a1a1a;">Pending Review</strong></p>
       <table width="100%" cellpadding="0" cellspacing="0" border="0">
-        <tr><td style="padding:5px 0;font-size:11px;color:#6b7280;width:150px;">Investor</td><td style="font-size:11px;font-weight:600;color:#1a1a1a;">${data.userFullName}</td></tr>
-        <tr><td style="padding:5px 0;font-size:11px;color:#6b7280;">Email</td><td style="font-size:11px;font-weight:600;color:#1a1a1a;">${data.userEmail}</td></tr>
-        <tr><td style="padding:5px 0;font-size:11px;color:#6b7280;">Brokerage</td><td style="font-size:11px;font-weight:600;color:#1a1a1a;">${data.brokerageName}</td></tr>
-        <tr><td style="padding:5px 0;font-size:11px;color:#6b7280;">Account Number</td><td style="font-size:11px;font-weight:600;color:#1a1a1a;">${data.brokerageAccountNumber}</td></tr>
-        <tr><td style="padding:5px 0;font-size:11px;color:#6b7280;">Account Holder</td><td style="font-size:11px;font-weight:600;color:#1a1a1a;">${data.accountHolderName}</td></tr>
+        ${row("Investor", data.userFullName)}
+        ${row("Email", data.userEmail)}
+        ${isBrokerage ? row("Brokerage", data.brokerageName) : ""}
+        ${isBrokerage ? row("Account Number", data.brokerageAccountNumber) : ""}
+        ${isBrokerage ? row("Account Holder", data.accountHolderName) : ""}
+        ${isBrokerage ? row("Contact Email", data.emailAddress) : ""}
+        ${!isBrokerage ? row("Recipient Email", data.recipientEmail) : ""}
+        ${row("Asset", data.asset ?? "SPCX")}
+        ${data.amountToTransfer ? row("Amount", data.amountToTransfer.toLocaleString()) : ""}
+        ${row("Transfer Type", data.transferSubType === "full" ? "Full Transfer" : data.transferSubType === "partial" ? "Partial Transfer" : "")}
+        ${row("Notes", data.notes)}
       </table>
     `),
-    text: `Transfer Request\n${data.userFullName} (${data.userEmail})\nBrokerage: ${data.brokerageName}\nAccount: ${data.brokerageAccountNumber}`,
+    text: `Transfer Request [${data.requestId}]\n${data.userFullName} (${data.userEmail})\n${isBrokerage ? `Brokerage: ${data.brokerageName}\nAccount: ${data.brokerageAccountNumber}` : `Recipient: ${data.recipientEmail}`}`,
+  });
+}
+
+export async function sendTransferVerificationCode(to: string, fullName: string, code: string) {
+  const firstName = fullName.split(" ")[0];
+  await sendEmail({
+    to,
+    subject: `SpaceX Transfer Verification Code: ${code}`,
+    html: layout(`
+      <p style="margin:0 0 4px;font-size:10px;letter-spacing:3px;color:#9aa0a6;text-transform:uppercase;">Identity Verification</p>
+      <h1 style="margin:0 0 8px;font-size:17px;font-weight:700;color:#1a1a1a;">Hi ${firstName},</h1>
+      <p style="margin:0 0 22px;font-size:13px;color:#374151;line-height:1.6;">
+        You are about to submit a transfer request. Enter the code below to verify your identity. This code expires in <strong>10 minutes</strong>.
+      </p>
+      <table cellpadding="0" cellspacing="0" border="0" style="margin:0 auto 22px;">
+        <tr>
+          <td style="background:#f8f9fa;border:1px solid #e8eaed;border-radius:4px;padding:18px 36px;text-align:center;">
+            <span style="font-size:30px;font-weight:700;letter-spacing:10px;color:#1a1a1a;font-family:'Courier New',monospace;">${code}</span>
+          </td>
+        </tr>
+      </table>
+      <p style="margin:0;font-size:10px;color:#9aa0a6;text-align:center;">Do not share this code. If you did not request a transfer, please ignore this email or contact support.</p>
+    `, "You received this because a transfer was initiated on SpaceX Investor Platform."),
+    text: `Your SpaceX transfer verification code: ${code}\n\nExpires in 10 minutes. Do not share.`,
+  });
+}
+
+export async function sendTransferConfirmationToUser(data: {
+  to: string;
+  fullName: string;
+  requestId: string;
+  mode: "brokerage" | "internal";
+  brokerageName?: string;
+  asset?: string | null;
+  amountToTransfer?: number | null;
+  transferSubType?: "full" | "partial" | null;
+  recipientEmail?: string | null;
+}) {
+  const firstName = data.fullName.split(" ")[0];
+  const isBrokerage = data.mode === "brokerage";
+  const transferTypeLabel = data.transferSubType === "full" ? "Full Transfer" : data.transferSubType === "partial" ? "Partial Transfer" : "Transfer";
+  await sendEmail({
+    to: data.to,
+    subject: `Transfer Request Received — ${data.requestId}`,
+    html: layout(`
+      <p style="margin:0 0 4px;font-size:10px;letter-spacing:3px;color:#9aa0a6;text-transform:uppercase;">Transfer Request</p>
+      <h1 style="margin:0 0 12px;font-size:18px;font-weight:700;color:#1a1a1a;">Hi ${firstName}, your transfer request has been received.</h1>
+      <p style="margin:0 0 20px;font-size:13px;color:#374151;line-height:1.7;">
+        Your transfer request has been received and is <strong>pending review</strong>. Once verified, our transfer team will begin processing your request.
+      </p>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:20px;border:1px solid #e8eaed;border-radius:4px;">
+        <tr>
+          <td style="padding:10px 16px;background:#f8f9fa;border-bottom:1px solid #e8eaed;">
+            <span style="font-size:10px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:1px;">Request Summary</span>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:12px 16px;">
+            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr><td style="font-size:12px;color:#6b7280;padding-bottom:6px;">Request ID</td><td align="right" style="font-size:12px;font-weight:700;color:#1a1a1a;padding-bottom:6px;">${data.requestId}</td></tr>
+              <tr><td style="font-size:12px;color:#6b7280;padding-bottom:6px;">Type</td><td align="right" style="font-size:12px;font-weight:700;color:#1a1a1a;padding-bottom:6px;">${isBrokerage ? "Brokerage Transfer" : "Internal Transfer"}</td></tr>
+              ${isBrokerage ? `<tr><td style="font-size:12px;color:#6b7280;padding-bottom:6px;">Destination</td><td align="right" style="font-size:12px;font-weight:700;color:#1a1a1a;padding-bottom:6px;">${data.brokerageName ?? ""}</td></tr>` : ""}
+              ${!isBrokerage ? `<tr><td style="font-size:12px;color:#6b7280;padding-bottom:6px;">Recipient</td><td align="right" style="font-size:12px;font-weight:700;color:#1a1a1a;padding-bottom:6px;">${data.recipientEmail ?? ""}</td></tr>` : ""}
+              <tr><td style="font-size:12px;color:#6b7280;padding-bottom:6px;">Asset</td><td align="right" style="font-size:12px;font-weight:700;color:#1a1a1a;padding-bottom:6px;">${data.asset ?? "SPCX"}</td></tr>
+              <tr><td style="font-size:12px;color:#6b7280;padding-bottom:6px;">Transfer Type</td><td align="right" style="font-size:12px;font-weight:700;color:#1a1a1a;padding-bottom:6px;">${transferTypeLabel}</td></tr>
+              <tr><td style="font-size:12px;color:#6b7280;">Status</td><td align="right" style="font-size:12px;font-weight:700;color:#d97706;">Pending Review</td></tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:8px;border:1px solid #fed7aa;border-radius:4px;background:#fff7ed;">
+        <tr>
+          <td style="padding:12px 16px;">
+            <p style="margin:0 0 4px;font-size:11px;font-weight:700;color:#9a3412;">What happens next?</p>
+            <p style="margin:0;font-size:11px;color:#c2410c;line-height:1.6;">
+              Our transfer team will review your request and may contact you if additional documentation is required. This is a manual process and typically takes 2–5 business days.
+            </p>
+          </td>
+        </tr>
+      </table>
+    `, "This email confirms your transfer request on SpaceX Investor Platform."),
+    text: `Hi ${firstName},\n\nYour transfer request has been received and is pending review.\n\nRequest ID: ${data.requestId}\nType: ${isBrokerage ? "Brokerage Transfer" : "Internal Transfer"}\n${isBrokerage ? `Destination: ${data.brokerageName}` : `Recipient: ${data.recipientEmail}`}\n\nOnce verified, our transfer team will begin processing your request.`,
   });
 }
 
@@ -873,6 +978,131 @@ export async function sendSharesCreditedEmail(data: {
       </table>
     `, `Questions? Contact us at ${support}`),
     text: `Hi ${firstName},\n\nYour SpaceX share allocation has been confirmed.\n\nShares: ${data.requestedShares.toLocaleString()}\nPrice per Share: $${data.pricePerShare.toLocaleString()}\nTotal: $${data.amountUsd.toLocaleString()}\n\nDashboard: ${data.platformUrl}/dashboard\n\n${support}`,
+  });
+}
+
+export async function sendPurchaseRejectedEmail(data: {
+  to: string;
+  fullName: string;
+  requestedShares: number;
+  amountUsd: number;
+  platformUrl: string;
+}) {
+  const firstName = data.fullName.split(" ")[0];
+  const support = process.env.SMTP_USER || "reply@spacexrocket.space";
+
+  await sendEmail({
+    to: data.to,
+    subject: `Update on Your SpaceX Share Purchase Request`,
+    html: layout(`
+      <p style="margin:0 0 4px;font-size:10px;letter-spacing:3px;color:#9aa0a6;text-transform:uppercase;">Purchase Update</p>
+      <h1 style="margin:0 0 12px;font-size:19px;font-weight:700;color:#1a1a1a;">Hi ${firstName},</h1>
+      <p style="margin:0 0 20px;font-size:13px;color:#374151;line-height:1.7;">
+        We were unable to confirm your request for <strong>${data.requestedShares.toLocaleString()} SPCX shares</strong> ($${data.amountUsd.toLocaleString()} USD). This can happen if payment wasn't received or verification could not be completed. Please contact us if you believe this is a mistake or would like to submit a new request.
+      </p>
+      <table cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td style="background:#1a1a1a;border-radius:4px;">
+            <a href="${data.platformUrl}/history" style="display:inline-block;padding:10px 22px;font-size:12px;font-weight:600;color:#ffffff;text-decoration:none;">View Transaction History</a>
+          </td>
+        </tr>
+      </table>
+    `, `Questions? Contact us at ${support}`),
+    text: `Hi ${firstName},\n\nWe were unable to confirm your request for ${data.requestedShares.toLocaleString()} SPCX shares ($${data.amountUsd.toLocaleString()} USD). Please contact us if you have questions.\n\n${data.platformUrl}/history\n\n${support}`,
+  });
+}
+
+export async function sendTransferStatusUpdateEmail(data: {
+  to: string;
+  fullName: string;
+  requestId: string;
+  status: string;
+  platformUrl: string;
+}) {
+  const firstName = data.fullName.split(" ")[0];
+  const support = process.env.SMTP_USER || "reply@spacexrocket.space";
+  const statusLabels: Record<string, string> = {
+    under_review: "Under Review",
+    awaiting_documents: "Awaiting Documents",
+    approved: "Approved",
+    processing: "Processing",
+    rejected: "Not Approved",
+  };
+  const label = statusLabels[data.status] ?? data.status;
+
+  await sendEmail({
+    to: data.to,
+    subject: `Transfer Update — ${label} (${data.requestId})`,
+    html: layout(`
+      <p style="margin:0 0 4px;font-size:10px;letter-spacing:3px;color:#9aa0a6;text-transform:uppercase;">Transfer Update</p>
+      <h1 style="margin:0 0 12px;font-size:19px;font-weight:700;color:#1a1a1a;">Hi ${firstName},</h1>
+      <p style="margin:0 0 20px;font-size:13px;color:#374151;line-height:1.7;">
+        Your transfer request <strong>${data.requestId}</strong> status has been updated to <strong>${label}</strong>.
+        ${data.status === "rejected" ? " If you believe this is a mistake or need more information, please contact support." : " We'll keep you updated as it progresses."}
+      </p>
+      <table cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td style="background:#1a1a1a;border-radius:4px;">
+            <a href="${data.platformUrl}/history?tab=transfers" style="display:inline-block;padding:10px 22px;font-size:12px;font-weight:600;color:#ffffff;text-decoration:none;">View Transfer Status</a>
+          </td>
+        </tr>
+      </table>
+    `, `Questions? Contact us at ${support}`),
+    text: `Hi ${firstName},\n\nYour transfer request ${data.requestId} status has been updated to ${label}.\n\n${data.platformUrl}/history?tab=transfers\n\n${support}`,
+  });
+}
+
+export async function sendInternalTransferCompletedEmail(data: {
+  to: string;
+  fullName: string;
+  role: "sender" | "recipient";
+  counterpartyEmail: string;
+  shares: number;
+  requestId: string;
+  platformUrl: string;
+}) {
+  const firstName = data.fullName.split(" ")[0];
+  const support = process.env.SMTP_USER || "reply@spacexrocket.space";
+  const isSender = data.role === "sender";
+
+  await sendEmail({
+    to: data.to,
+    subject: isSender
+      ? `Transfer Completed — ${data.shares.toLocaleString()} SPCX Sent`
+      : `You've Received ${data.shares.toLocaleString()} SPCX Shares`,
+    html: layout(`
+      <p style="margin:0 0 4px;font-size:10px;letter-spacing:3px;color:#9aa0a6;text-transform:uppercase;">Transfer Completed</p>
+      <h1 style="margin:0 0 12px;font-size:19px;font-weight:700;color:#1a1a1a;">Hi ${firstName},</h1>
+      <p style="margin:0 0 20px;font-size:13px;color:#374151;line-height:1.7;">
+        ${isSender
+          ? `Your transfer of <strong>${data.shares.toLocaleString()} SPCX shares</strong> to <strong>${data.counterpartyEmail}</strong> has been completed and your holdings have been updated.`
+          : `<strong>${data.counterpartyEmail}</strong> has transferred <strong>${data.shares.toLocaleString()} SPCX shares</strong> to your account. Your holdings have been updated.`}
+      </p>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:20px;border:1px solid #e8eaed;border-radius:4px;">
+        <tr>
+          <td style="padding:12px 16px;">
+            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td style="font-size:12px;color:#6b7280;padding-bottom:6px;">Reference</td>
+                <td align="right" style="font-size:12px;font-weight:700;color:#1a1a1a;padding-bottom:6px;">${data.requestId}</td>
+              </tr>
+              <tr>
+                <td style="font-size:12px;color:#6b7280;">Shares</td>
+                <td align="right" style="font-size:13px;font-weight:700;color:#1a1a1a;">${data.shares.toLocaleString()} SPCX</td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+      <table cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td style="background:#1a1a1a;border-radius:4px;">
+            <a href="${data.platformUrl}/history?tab=transfers" style="display:inline-block;padding:10px 22px;font-size:12px;font-weight:600;color:#ffffff;text-decoration:none;">View Transaction History</a>
+          </td>
+        </tr>
+      </table>
+    `, `Questions? Contact us at ${support}`),
+    text: `Hi ${firstName},\n\n${isSender ? `Your transfer of ${data.shares.toLocaleString()} SPCX shares to ${data.counterpartyEmail} has been completed.` : `${data.counterpartyEmail} has transferred ${data.shares.toLocaleString()} SPCX shares to your account.`}\n\nReference: ${data.requestId}\n\n${data.platformUrl}/history?tab=transfers\n\n${support}`,
   });
 }
 

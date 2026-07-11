@@ -1,19 +1,7 @@
-import * as React from "react"
-
-const MOBILE_BREAKPOINT = 768
-
+// The platform is intentionally mobile-only: the desktop dashboard layout has
+// been retired, so this always reports "mobile" regardless of viewport width.
+// Desktop/tablet visitors still get the full mobile UI, scaled to a phone-width
+// frame by the global CSS in index.css (see ".app-mobile-frame").
 export function useIsMobile() {
-  const [isMobile, setIsMobile] = React.useState<boolean | undefined>(undefined)
-
-  React.useEffect(() => {
-    const mql = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`)
-    const onChange = () => {
-      setIsMobile(window.innerWidth < MOBILE_BREAKPOINT)
-    }
-    mql.addEventListener("change", onChange)
-    setIsMobile(window.innerWidth < MOBILE_BREAKPOINT)
-    return () => mql.removeEventListener("change", onChange)
-  }, [])
-
-  return !!isMobile
+  return true
 }

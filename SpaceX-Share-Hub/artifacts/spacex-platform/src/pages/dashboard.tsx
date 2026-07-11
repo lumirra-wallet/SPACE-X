@@ -6,8 +6,32 @@ import { useUser, useSettings } from "@/hooks/useUser";
 import { api, type Purchase, type PriceAlert, type OHLCPoint } from "@/lib/api";
 import { motion } from "framer-motion";
 import { format } from "date-fns";
-import appLogo from "@assets/xpsca_1778445100452.png";
-import { ComposedChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Bar, CartesianGrid, ReferenceLine } from "recharts";
+import appLogo from "@/assets/logo.png";
+import { ComposedChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Bar, CartesianGrid, ReferenceLine, AreaChart } from "recharts";
+import { TrendingUp, TrendingDown, Bell, PlusCircle, Briefcase, FileText, Clock, CheckCircle2, Users, Check, X, ChevronRight } from "lucide-react";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { MobileApp } from "@/components/mobile/MobileApp";
+import { vib } from "@/lib/haptics";
+import { RocketLaunchIcon } from "@/components/RocketLaunchIcon";
+
+const STATIC_MARKET_STATS = [
+  { label: "52-Week High", value: "$142.50" },
+  { label: "52-Week Low", value: "$98.20" },
+  { label: "Float", value: "Private" },
+];
+
+function fmtVal(v: number | undefined): string {
+  if (v == null || v === 0) return "—";
+  if (v >= 1_000_000_000_000) return `${(v / 1_000_000_000_000).toFixed(2)}T`;
+  if (v >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(1)}B`;
+  return `${v.toLocaleString()}`;
+}
+
+const NEWS_ITEMS = [
+  { id: "n1", headline: "Starship completes 7th integrated flight test", time: "2h ago", tag: "Mission" },
+  { id: "n2", headline: "SpaceX wins $5.9B NASA lunar lander contract", time: "1d ago", tag: "Contract" },
+  { id: "n3", headline: "Starlink surpasses 4 million subscribers globally", time: "3d ago", tag: "Starlink" },
+];
 
 function IpoCountdown({ ipoTargetDate }: { ipoTargetDate: string }) {
   const calcTime = () => {
@@ -55,7 +79,7 @@ function IpoCountdown({ ipoTargetDate }: { ipoTargetDate: string }) {
   );
 }
 
-type Section = "overview" | "shares" | "purchase" | "apps" | "transactions";
+type Section = "overview" | "shares" | "purchase" | "apps";
 
 // ── OHLCV price data generation (local fallback) ───────────────────────
 function generateOHLCData(): OHLCPoint[] {
@@ -84,7 +108,6 @@ function generateOHLCData(): OHLCPoint[] {
     }
     cur.setDate(cur.getDate() + 1);
   }
-  if (points.length > 0) points[points.length - 1].close = 130;
   return points;
 }
 const ALL_OHLC_DATA = generateOHLCData();
@@ -150,7 +173,7 @@ function LiveStockChart({ sharePrice }: { sharePrice: number }) {
     if (!active || !payload?.length) return null;
     const d = payload[0].payload;
     return (
-      <div style={{ background: "#0c0c0c", border: "1px solid rgba(255,255,255,0.12)", padding: "8px 12px", minWidth: 155, fontFamily: "'Arial Black', Arial, sans-serif" }}>
+      <div style={{ background: "#000000", border: "1px solid rgba(255,255,255,0.12)", padding: "8px 12px", minWidth: 155, fontFamily: "'Arial Black', Arial, sans-serif" }}>
         <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 8, letterSpacing: "0.14em", marginBottom: 6 }}>{d.label}</p>
         {([
           { k: "O", v: `$${d.open.toFixed(2)}`, c: "rgba(255,255,255,0.65)" },
@@ -169,7 +192,7 @@ function LiveStockChart({ sharePrice }: { sharePrice: number }) {
   };
 
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-white/[0.07] bg-[#080808] shadow-[0_8px_48px_rgba(0,0,0,0.9)]">
+    <div className="relative overflow-hidden rounded-2xl border border-white/[0.07] bg-[#000000] shadow-[0_8px_48px_rgba(0,0,0,0.9)]">
       <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
 
       {/* Header */}
@@ -254,7 +277,7 @@ function LiveStockChart({ sharePrice }: { sharePrice: number }) {
               orientation="right"
               tick={{ fill: "rgba(255,255,255,0.2)", fontSize: 9 }}
               axisLine={false}
-              tickLine={{ stroke: "rgba(255,255,255,0.04)", length: 4 }}
+              tickLine={{ stroke: "rgba(255,255,255,0.04)" }}
               domain={["auto", "auto"]}
               tickFormatter={(v: number) => `$${v.toFixed(0)}`}
               width={46}
@@ -308,15 +331,48 @@ function SpaceXLogo({ className = "" }: { className?: string }) {
 }
 
 function statusBadge(status: string) {
-  if (status === "confirmed") return "bg-green-500/15 text-green-400 border-green-500/25";
-  if (status === "rejected") return "bg-red-500/15 text-red-400 border-red-500/25";
-  return "bg-yellow-500/15 text-yellow-400 border-yellow-500/25";
+  if (status === "confirmed") return "bg-white/[0.12] text-white border-white/20";
+  if (status === "rejected") return "bg-white/[0.08] text-white/70 border-white/15";
+  return "bg-white/[0.08] text-white/70 border-white/15";
 }
 
 function statusLabel(status: string) {
   if (status === "confirmed") return "Confirmed";
   if (status === "rejected") return "Rejected";
   return "Pending Order";
+}
+
+function greeting() {
+  const hour = new Date().getHours();
+  return hour < 12 ? "Good morning," : hour < 17 ? "Good afternoon," : "Good evening,";
+}
+
+function HeroSparkline({ positive }: { positive: boolean }) {
+  const { data: historyData } = useQuery({
+    queryKey: ["priceHistory"],
+    queryFn: api.getPriceHistory,
+    staleTime: 4 * 60 * 60 * 1000,
+    retry: 1,
+  });
+  const color = positive ? "#22c55e" : "#ef4444";
+  const points = historyData?.points?.slice(-30) ?? ALL_OHLC_DATA.slice(-30);
+  const data = points.map((p: any) => ({ v: p.close }));
+
+  return (
+    <div style={{ height: 80 }} className="-mx-1">
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={data} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
+          <defs>
+            <linearGradient id="heroSparkGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={color} stopOpacity={0.35} />
+              <stop offset="100%" stopColor={color} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <Area type="monotone" dataKey="v" stroke={color} strokeWidth={2} fill="url(#heroSparkGrad)" isAnimationActive={false} />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
 }
 
 function NavItem({
@@ -336,7 +392,7 @@ function NavItem({
 }) {
   return (
     <button
-      onClick={onClick}
+      onClick={() => { vib(); onClick(); }}
       className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold tracking-wide transition-all text-left ${
         active
           ? "bg-white text-black"
@@ -404,33 +460,58 @@ export default function DashboardPage() {
   const qc = useQueryClient();
   const [section, setSection] = useState<Section>("overview");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const isMobile = useIsMobile();
 
+  // Desktop-only queries — disabled on mobile to avoid double data fetching
+  // (MobileApp issues its own queries independently)
   const { data: summary } = useQuery({
     queryKey: ["dashboard"],
     queryFn: api.getDashboardSummary,
-    enabled: !!isSignedIn,
+    enabled: !!isSignedIn && !isMobile,
     refetchInterval: 15_000,
   });
 
   const { data: purchases = [] } = useQuery({
     queryKey: ["purchases"],
     queryFn: api.getPurchases,
-    enabled: !!isSignedIn,
+    enabled: !!isSignedIn && !isMobile,
     refetchInterval: 15_000,
   });
 
   const { data: transfers = [] } = useQuery({
     queryKey: ["transfers"],
     queryFn: api.getTransfers,
-    enabled: !!isSignedIn,
+    enabled: !!isSignedIn && !isMobile,
     refetchInterval: 15_000,
   });
 
   const { data: priceAlerts = [] } = useQuery({
     queryKey: ["alerts"],
     queryFn: api.getAlerts,
-    enabled: !!isSignedIn,
+    enabled: !!isSignedIn && !isMobile,
     refetchInterval: 15_000,
+  });
+
+  const { data: liveQuote } = useQuery({
+    queryKey: ["priceQuote"],
+    queryFn: api.getPriceQuote,
+    enabled: !!isSignedIn && !isMobile,
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+    retry: 1,
+  });
+
+  const { data: newsData } = useQuery({
+    queryKey: ["spaceflightNews"],
+    queryFn: async () => {
+      const res = await fetch(
+        "https://api.spaceflightnewsapi.net/v4/articles/?limit=6&search=spacex&ordering=-published_at"
+      );
+      return res.json();
+    },
+    staleTime: 15 * 60 * 1000,
+    retry: 1,
+    enabled: !isMobile,
   });
 
   const [alertTargetPrice, setAlertTargetPrice] = useState("");
@@ -462,9 +543,13 @@ export default function DashboardPage() {
     return null;
   }
 
+  // On mobile viewports render the native-style iOS-matching mobile app
+  if (isMobile) {
+    return <MobileApp />;
+  }
 
   const isPostIpo = summary?.systemMode === "post_ipo";
-  const sharePrice = summary?.sharePrice ?? settings?.sharePrice ?? 130;
+  const sharePrice = liveQuote?.price ?? summary?.sharePrice ?? settings?.sharePrice ?? 130;
   const minInvestment = settings?.minInvestment ?? 2000;
   const minShares = Math.ceil(minInvestment / sharePrice);
   const totalShares = summary?.totalShares ?? user?.totalSharesCredited ?? 0;
@@ -477,7 +562,7 @@ export default function DashboardPage() {
   const paperGainLoss = avgBuyPrice > 0 ? (sharePrice - avgBuyPrice) * totalShares : 0;
   const paperGainPct = avgBuyPrice > 0 ? ((sharePrice - avgBuyPrice) / avgBuyPrice) * 100 : 0;
 
-  const navItems: { id: Section | "transfer_nav"; label: string; icon: React.ReactNode; badge?: number; onClick?: () => void; verifyTag?: boolean }[] = [
+  const navItems: { id: Section | "transfer_nav" | "transactions"; label: string; icon: React.ReactNode; badge?: number; onClick?: () => void; verifyTag?: boolean }[] = [
     {
       id: "overview", label: "Overview",
       icon: <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5"><rect x="1" y="1" width="6" height="6" /><rect x="9" y="1" width="6" height="6" /><rect x="1" y="9" width="6" height="6" /><rect x="9" y="9" width="6" height="6" /></svg>
@@ -498,6 +583,7 @@ export default function DashboardPage() {
     },
     {
       id: "transactions" as const, label: "Transactions",
+      onClick: () => navigate("/history"),
       icon: <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5"><rect x="1" y="2" width="14" height="12" rx="1.2"/><line x1="4" y1="6" x2="12" y2="6"/><line x1="4" y1="9.5" x2="8.5" y2="9.5"/></svg>
     },
     {
@@ -528,7 +614,7 @@ export default function DashboardPage() {
             key={item.id}
             label={item.label}
             icon={item.icon}
-            active={item.id !== "transfer_nav" && section === (item.id as Section)}
+            active={item.id !== "transfer_nav" && item.id !== "transactions" && section === (item.id as Section)}
             onClick={item.onClick ?? (() => setSection(item.id as Section))}
             badge={item.badge}
             verifyTag={item.verifyTag}
@@ -586,7 +672,7 @@ export default function DashboardPage() {
           <SpaceXLogo className="h-12 w-auto" />
           <div className="flex items-center gap-3">
             <button
-              onClick={() => navigate("/profile")}
+              onClick={() => { vib(); navigate("/profile"); }}
               className="w-9 h-9 rounded-full overflow-hidden border border-white/[0.15] hover:opacity-80 transition-opacity"
             >
               <img src="/profile-avatar.avif" alt="Profile" className="w-full h-full object-cover" />
@@ -599,58 +685,79 @@ export default function DashboardPage() {
           style={{ overscrollBehavior: "none" }}
         >
 
-          {/* ── OVERVIEW ─────────────────────────── */}
+          {/* ── OVERVIEW (mirrors native mobile app home tab) ── */}
           {section === "overview" && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-2 md:space-y-8">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-[18px] md:space-y-8 pb-2">
 
-              {/* Mobile greeting row */}
+              {/* Greeting row — matches mobile "Good evening, Name" + mode badge + bell */}
               <div className="flex items-center justify-between md:hidden">
                 <div>
-                  <p className="text-white/30 text-[0.6rem] tracking-[0.2em] uppercase" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>INVESTOR PORTAL</p>
-                  <h2 className="text-white font-black text-lg leading-tight" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
-                    {user?.fullName?.split(" ")[0] || "Welcome back"}
+                  <p className="text-white/[0.55] text-[13px]">{greeting()}</p>
+                  <h2 className="text-white font-bold text-[22px] leading-tight tracking-tight">
+                    {user?.fullName?.split(" ")[0] || "Investor"}
                   </h2>
                 </div>
-              </div>
-
-              {/* Portfolio hero card — liquid glass */}
-              <div className="relative overflow-hidden rounded-2xl border border-white/[0.12] bg-gradient-to-br from-white/[0.09] to-white/[0.02] backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,0.6)]">
-                <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/40 to-transparent" />
-                <div className="relative p-3 md:p-6 md:py-8">
-                  <p className="text-white/40 text-[0.58rem] tracking-[0.2em] uppercase mb-1" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
-                    TOTAL PORTFOLIO VALUE
-                  </p>
-                  <div className="flex items-end gap-3 flex-wrap mb-1">
-                    <h1 className="text-2xl md:text-5xl font-black text-white leading-none" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
-                      ${totalUsdValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </h1>
-                    {avgBuyPrice > 0 && (
-                      <span className={`text-sm font-black ${paperGainLoss >= 0 ? "text-green-400" : "text-red-400"}`} style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
-                        {paperGainLoss >= 0 ? "+" : ""}{paperGainPct.toFixed(2)}%
-                      </span>
-                    )}
+                <div className="flex items-center gap-3.5">
+                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border border-white/20 bg-white/[0.08]">
+                    <span className="w-1.5 h-1.5 rounded-full bg-white/80" />
+                    <span className="text-[11px] font-bold tracking-wide text-white/80">
+                      {isPostIpo ? "POST-IPO" : "PRE-IPO"}
+                    </span>
                   </div>
-                  <p className="text-white/40 text-xs">
-                    {totalShares.toLocaleString()} shares &nbsp;·&nbsp; ${sharePrice.toLocaleString()} / share
-                  </p>
+                  <button onClick={() => { vib(); navigate("/history"); }}>
+                    <Bell className="w-[22px] h-[22px] text-white/[0.55]" strokeWidth={1.8} />
+                  </button>
                 </div>
               </div>
 
-              {/* Stat chips — 2×2 on mobile, 4-col on desktop */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                {[
-                  { label: "Shares Owned", value: totalShares.toLocaleString(), sub: "credited", accent: true },
-                  { label: "Avg Buy Price", value: avgBuyPrice > 0 ? `$${avgBuyPrice.toFixed(2)}` : "—", sub: "per share" },
-                  { label: "Unrealised P&L", value: avgBuyPrice > 0 ? `${paperGainLoss >= 0 ? "+" : ""}$${Math.abs(paperGainLoss).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "—", sub: avgBuyPrice > 0 ? `${paperGainPct >= 0 ? "+" : ""}${paperGainPct.toFixed(1)}%` : "no history", gainColor: avgBuyPrice > 0 ? (paperGainLoss >= 0 ? "text-green-400" : "text-red-400") : "text-white/50" },
-                  { label: "Share Price", value: `$${sharePrice.toLocaleString()}`, sub: "current" },
-                ].map((s) => (
-                  <div key={s.label} className="relative p-2.5 overflow-hidden rounded-xl border border-white/[0.08] bg-gradient-to-br from-white/[0.06] to-white/[0.02] backdrop-blur-sm">
-                    <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
-                    <p className="text-white/40 text-[0.55rem] tracking-widest uppercase mb-1" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>{s.label}</p>
-                    <p className={`text-base font-black ${s.gainColor || "text-white"}`} style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>{s.value}</p>
-                    {s.sub && <p className="text-white/30 text-[0.6rem] mt-0.5">{s.sub}</p>}
+              {/* Portfolio hero card — matches native mobile GlassCard style */}
+              <div className="rounded-[22px] overflow-hidden" style={{ background: "#000000", border: "1px solid rgba(0,229,255,0.15)", boxShadow: "0 8px 40px rgba(0,229,255,0.06)" }}>
+                <div className="p-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-white/[0.55] text-[10px] font-semibold tracking-widest uppercase">Portfolio Value</span>
+                    <span className="text-white text-[13px] font-black tracking-wider">SPCX</span>
                   </div>
-                ))}
+                  <p className="text-white font-black text-[46px] leading-none tracking-tight" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: -2 }}>
+                    ${totalUsdValue.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                  </p>
+                  <div className="flex items-center gap-2 mt-2">
+                    {paperGainLoss >= 0
+                      ? <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+                      : <TrendingDown className="w-3.5 h-3.5 text-red-400" />}
+                    <span className={`text-sm font-bold ${paperGainLoss >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                      {paperGainLoss >= 0 ? "+" : ""}${Math.abs(paperGainLoss).toLocaleString("en-US", { maximumFractionDigits: 0 })} ({paperGainPct >= 0 ? "+" : ""}{paperGainPct.toFixed(2)}%)
+                    </span>
+                    <span className="text-white/[0.55] text-xs">all time</span>
+                  </div>
+
+                  {/* Mini sparkline — red/green area chart under the value */}
+                  <HeroSparkline positive={paperGainLoss >= 0} />
+
+                  <div className="h-px my-3.5" style={{ background: "rgba(255,255,255,0.07)" }} />
+
+                  <div className="flex">
+                    {[
+                      { label: "Share Price", value: `${sharePrice.toLocaleString()}` },
+                      { label: "Your Shares", value: totalShares.toFixed(2) },
+                      { label: "Invested", value: `${(avgBuyPrice > 0 ? avgBuyPrice * totalShares : 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}` },
+                    ].map((s, i, arr) => (
+                      <div key={s.label} className="flex-1 flex flex-col items-center gap-1"
+                        style={{ borderRight: i < arr.length - 1 ? "1px solid rgba(255,255,255,0.07)" : "none" }}>
+                        <p className="text-white/[0.55] text-[10px] font-medium tracking-wider uppercase">{s.label}</p>
+                        <p className="text-white text-[15px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{s.value}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Transaction history link */}
+                  <div className="h-px mt-3.5 mb-2.5" style={{ background: "rgba(255,255,255,0.07)" }} />
+                  <div className="flex justify-center">
+                    <button onClick={() => { vib(); navigate("/history"); }}
+                      className="text-white/50 text-[11px] font-semibold tracking-widest uppercase underline underline-offset-2 hover:text-white transition-colors">
+                      Transactions
+                    </button>
+                  </div>
+                </div>
               </div>
 
               {/* IPO Countdown — pre-IPO only */}
@@ -658,57 +765,140 @@ export default function DashboardPage() {
                 <IpoCountdown ipoTargetDate={settings.ipoTargetDate} />
               )}
 
-              {/* Quick actions — glass cards */}
-              <div className="grid grid-cols-2 gap-2">
+              {/* Quick action buttons — matches mobile row of 3 */}
+              <div className="flex gap-2.5">
                 <button onClick={() => setSection("purchase")}
-                  className="relative text-left overflow-hidden rounded-xl border border-white/[0.1] bg-gradient-to-br from-white/[0.08] to-white/[0.02] backdrop-blur-md p-3 hover:from-white/[0.13] hover:to-white/[0.05] transition-all group">
-                  <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/30 to-transparent" />
-                  <p className="text-white/40 text-[0.55rem] tracking-widest uppercase mb-0.5" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>PURCHASE</p>
-                  <p className="text-white font-black text-sm uppercase tracking-wide leading-tight" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>Buy Shares</p>
-                  <p className="text-white/30 text-[0.6rem] mt-1">${sharePrice}/share</p>
+                  className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl bg-white hover:bg-white/90 transition-colors">
+                  <PlusCircle className="w-[18px] h-[18px] text-black" strokeWidth={2} />
+                  <span className="text-black text-[13px] font-semibold">Buy Shares</span>
                 </button>
-                <button onClick={() => setSection("shares")}
-                  className="relative text-left overflow-hidden rounded-xl border border-white/[0.08] bg-gradient-to-br from-white/[0.05] to-white/[0.01] backdrop-blur-md p-3 hover:from-white/[0.09] hover:to-white/[0.03] transition-all group">
-                  <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
-                  <p className="text-white/40 text-[0.55rem] tracking-widest uppercase mb-0.5" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>HOLDINGS</p>
-                  <p className="text-white/80 font-black text-sm uppercase tracking-wide leading-tight" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>Portfolio</p>
-                  <p className="text-white/30 text-[0.6rem] mt-1">{totalShares.toLocaleString()} shares</p>
+                <button onClick={() => { vib(); navigate("/history"); }}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl bg-black border border-white/[0.1] hover:bg-white/[0.06] transition-colors">
+                  <FileText className="w-[18px] h-[18px] text-white" strokeWidth={1.8} />
+                  <span className="text-white text-[13px] font-semibold">Transactions</span>
+                </button>
+                <button onClick={() => { vib(); navigate("/transfer"); }}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl bg-black border border-white/[0.1] hover:bg-white/[0.06] transition-colors">
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-[18px] h-[18px] text-white"><path d="M1 4h11m0 0L8 1m4 3L8 7" /><path d="M15 12H4m0 0l4-3m-4 3l4 3" /></svg>
+                  <span className="text-white text-[13px] font-semibold">Transfer</span>
                 </button>
               </div>
 
-              {/* Recent activity — 1 pending order only */}
-              {(() => {
-                const recentOrder = (purchases as Purchase[]).find(p => p.status === "pending") ?? (purchases as Purchase[])[0] ?? null;
-                if (!recentOrder) return null;
-                return (
-                  <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-gradient-to-b from-white/[0.04] to-transparent backdrop-blur-sm">
-                    <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
-                    <div className="px-5 py-4 border-b border-white/[0.06] flex items-center justify-between">
-                      <p className="text-white/40 text-[0.65rem] tracking-widest uppercase" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
-                        RECENT ORDER
-                      </p>
-                    </div>
-                    <div>
-                      <div className="px-5 py-3.5 flex items-center justify-between">
-                        <div>
-                          <p className="text-white font-semibold text-sm">{Number(recentOrder.requestedShares).toLocaleString()} shares</p>
-                          <p className="text-white/30 text-xs mt-0.5">${Number(recentOrder.amountUsd).toLocaleString()} · {format(new Date(recentOrder.createdAt), "MMM d, yyyy")}</p>
-                        </div>
-                        <span className={`text-xs px-2.5 py-1 border font-semibold ${statusBadge(recentOrder.status)}`}>{statusLabel(recentOrder.status)}</span>
-                      </div>
-                      <div className="px-5 pb-4 pt-1">
-                        <button
-                          onClick={() => setSection("transactions")}
-                          className="w-full py-2 text-[0.6rem] font-black tracking-widest uppercase text-white/30 hover:text-white border border-white/[0.08] hover:border-white/20 transition-colors"
-                          style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}
-                        >
-                          VIEW ALL ORDERS ›
-                        </button>
-                      </div>
-                    </div>
+              {/* Order stats row — matches mobile 3-glass-card row */}
+              <div className="flex gap-2.5">
+                <div className="flex-1 rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
+                  <Clock className="w-5 h-5 text-white/60 mb-1.5" strokeWidth={1.8} />
+                  <p className="text-white text-xl font-bold leading-none">
+                    {(purchases as Purchase[]).filter(p => p.status === "pending_review").length}
+                  </p>
+                  <p className="text-white/[0.55] text-[11px] mt-1">Pending Orders</p>
+                </div>
+                <div className="flex-1 rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
+                  <CheckCircle2 className="w-5 h-5 text-white/60 mb-1.5" strokeWidth={1.8} />
+                  <p className="text-white text-xl font-bold leading-none">
+                    {(purchases as Purchase[]).filter(p => p.status === "confirmed").length}
+                  </p>
+                  <p className="text-white/[0.55] text-[11px] mt-1">Confirmed Orders</p>
+                </div>
+                <div className="flex-1 rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
+                  <Users className="w-5 h-5 text-white/60 mb-1.5" strokeWidth={1.8} />
+                  <p className="text-white text-xl font-bold leading-none">84.4k</p>
+                  <p className="text-white/[0.55] text-[11px] mt-1">Investors</p>
+                </div>
+              </div>
+
+              {/* Recent Activity — matches mobile list */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-white text-base font-bold">Recent Activity</h3>
+                  {(purchases as Purchase[]).length > 0 && (
+                    <button onClick={() => { vib(); navigate("/history"); }} className="text-white/50 text-[13px] font-medium">See all</button>
+                  )}
+                </div>
+                {(purchases as Purchase[]).length === 0 ? (
+                  <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-7 flex flex-col items-center text-center gap-1.5">
+                    <RocketLaunchIcon className="w-11 h-11 mb-1" />
+                    <p className="text-white font-semibold text-sm">No purchases yet</p>
+                    <p className="text-white/[0.55] text-xs">Tap Buy Shares above to reserve your first SPCX allocation.</p>
                   </div>
-                );
-              })()}
+                ) : (
+                  <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] overflow-hidden">
+                    {(purchases as Purchase[]).slice(0, 4).map((p, idx, arr) => {
+                      const statusColor = p.status === "confirmed" ? "#22c55e" : p.status === "rejected" ? "#ef4444" : "#f59e0b";
+                      const statusText = p.status === "confirmed" ? "Confirmed" : p.status === "rejected" ? "Rejected" : "Pending";
+                      return (
+                        <button key={p.id} onClick={() => { vib(); navigate("/history"); }}
+                          className={`w-full flex items-center justify-between gap-3 px-4 py-3.5 text-left ${idx < arr.length - 1 ? "border-b border-white/[0.06]" : ""}`}>
+                          <div className="min-w-0">
+                            <p className="text-white text-sm font-semibold">SPCX Purchase</p>
+                            <p className="text-white/[0.4] text-[11px] mt-0.5">
+                              {Number(p.requestedShares).toFixed(2)} shares @ ${Number(p.pricePerShare).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                            </p>
+                          </div>
+                          <div className="text-right shrink-0 flex items-center gap-2">
+                            <div>
+                              <p className="text-white text-sm font-semibold">${Number(p.amountUsd).toLocaleString("en-US", { maximumFractionDigits: 0 })}</p>
+                              <p className="text-[11px] font-semibold mt-0.5" style={{ color: statusColor }}>{statusText}</p>
+                            </div>
+                            <ChevronRight className="w-3.5 h-3.5 text-white/[0.4] shrink-0" />
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Market Data — matches mobile market stats card */}
+              <div className="space-y-2.5">
+                <h3 className="text-white text-base font-bold">Market Data</h3>
+                <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] overflow-hidden">
+                  {[STATIC_MARKET_STATS[0], STATIC_MARKET_STATS[1], { label: "Market Cap", value: fmtVal(quoteData?.valuation) }, STATIC_MARKET_STATS[2]].map((stat, idx, arr) => (
+                    <div key={stat.label} className={`flex items-center justify-between px-4 py-3 ${idx < arr.length - 1 ? "border-b border-white/[0.06]" : ""}`}>
+                      <span className="text-white/[0.55] text-sm">{stat.label}</span>
+                      <span className="text-white text-sm font-semibold">{stat.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* SpaceX News — live from Spaceflight News API */}
+              <div className="space-y-2.5">
+                <h3 className="text-white text-base font-bold">SpaceX News</h3>
+                {(newsData?.results?.length > 0
+                  ? (newsData.results as any[]).slice(0, 6)
+                  : NEWS_ITEMS.map((n) => ({ id: n.id, title: n.headline, publishedAt: null, newsSite: n.tag, summary: "", url: null, _fallbackTime: n.time }))
+                ).map((item: any) => (
+                  <div
+                    key={item.id}
+                    className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3.5 hover:bg-white/[0.04] transition-colors"
+                    onClick={() => item.url && window.open(item.url, "_blank", "noopener,noreferrer")}
+                    style={{ cursor: item.url ? "pointer" : "default" }}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="px-2 py-0.5 rounded-full bg-white/[0.10] text-white/70 text-[11px] font-semibold">
+                        {item.newsSite ?? item.tag}
+                      </span>
+                      <span className="text-white/[0.55] text-xs">
+                        {item.publishedAt
+                          ? new Date(item.publishedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                          : item._fallbackTime ?? item.time}
+                      </span>
+                    </div>
+                    <p className="text-white text-sm font-medium leading-snug">{item.title ?? item.headline}</p>
+                    {item.summary && (
+                      <p className="text-white/[0.45] text-xs mt-1.5 leading-relaxed line-clamp-2">{item.summary}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Valuation footer — matches mobile card */}
+              <div className="rounded-xl border border-white/[0.08] bg-white/[0.01] p-5 text-center">
+                <p className="text-white/[0.55] text-xs mb-1">SpaceX Valuation</p>
+                <p className="text-white text-2xl font-bold mb-1">{fmtVal(quoteData?.valuation)}</p>
+                <p className="text-white/[0.55] text-xs">Most valuable private company in history</p>
+              </div>
             </motion.div>
           )}
 
@@ -779,15 +969,12 @@ export default function DashboardPage() {
                 ))}
               </div>
 
-              {/* Live Price Chart */}
-              <LiveStockChart sharePrice={sharePrice} />
-
               {/* ── View transactions shortcut */}
               <div className="flex items-center justify-between px-1">
                 <p className="text-white/20 text-[0.6rem] tracking-widest uppercase" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
                   {(purchases as Purchase[]).length} order{(purchases as Purchase[]).length !== 1 ? "s" : ""} placed
                 </p>
-                <button onClick={() => setSection("transactions")}
+                <button onClick={() => { vib(); navigate("/history"); }}
                   className="text-white/30 hover:text-white text-[0.6rem] tracking-widest uppercase transition-colors"
                   style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
                   VIEW TRANSACTIONS ›
@@ -897,7 +1084,7 @@ export default function DashboardPage() {
                 onSuccess={() => {
                   qc.invalidateQueries({ queryKey: ["purchases"] });
                   qc.invalidateQueries({ queryKey: ["dashboard"] });
-                  setSection("transactions");
+                  navigate("/history");
                 }}
               />
             </motion.div>
@@ -908,119 +1095,6 @@ export default function DashboardPage() {
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-2 md:space-y-6">
               <SectionHeader label="APPS" sub="Tools & Games" />
               <SpaceTrivia />
-            </motion.div>
-          )}
-
-          {/* ── ORDERS ──────────────────────── */}
-          {section === "transactions" && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-2 md:space-y-4">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <SectionHeader label="ORDERS" sub="SpaceX Equity Purchase History" />
-                <button
-                  onClick={() => setSection("purchase")}
-                  className="flex items-center gap-2 px-4 py-2 bg-white text-black text-[0.6rem] font-black tracking-widest uppercase hover:bg-white/90 transition-colors"
-                  style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}
-                >
-                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="w-3 h-3"><line x1="8" y1="2" x2="8" y2="14"/><line x1="2" y1="8" x2="14" y2="8"/></svg>
-                  NEW ORDER
-                </button>
-              </div>
-
-              {/* Summary stats — always visible at the top */}
-              {(purchases as Purchase[]).length > 0 && (
-                <div className="grid grid-cols-3 gap-3">
-                  {[
-                    {
-                      label: "TOTAL INVESTED",
-                      value: `$${(purchases as Purchase[]).reduce((s, p) => s + Number(p.amountUsd), 0).toLocaleString()}`,
-                      sub: "USD committed"
-                    },
-                    {
-                      label: "TOTAL SHARES",
-                      value: (purchases as Purchase[]).reduce((s, p) => s + Number(p.requestedShares), 0).toLocaleString(),
-                      sub: "equity units"
-                    },
-                    {
-                      label: "ORDER COUNT",
-                      value: String((purchases as Purchase[]).length),
-                      sub: `${(purchases as Purchase[]).filter(p => p.status === "confirmed").length} confirmed`
-                    },
-                  ].map(({ label, value, sub }) => (
-                    <div key={label} className="relative overflow-hidden rounded-xl border border-white/[0.08] bg-gradient-to-br from-white/[0.06] to-white/[0.01] p-3 md:p-4">
-                      <p className="text-white/20 text-[0.5rem] tracking-widest uppercase mb-1" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>{label}</p>
-                      <p className="text-white font-black text-lg md:text-xl" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>{value}</p>
-                      <p className="text-white/25 text-[0.55rem] mt-0.5">{sub}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-gradient-to-b from-white/[0.04] to-transparent backdrop-blur-sm">
-                <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
-
-                {(purchases as Purchase[]).length === 0 ? (
-                  <div className="px-5 py-20 text-center">
-                    <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1" className="w-12 h-12 mx-auto text-white/10 mb-4">
-                      <rect x="4" y="8" width="40" height="32" rx="3"/><line x1="12" y1="18" x2="36" y2="18"/><line x1="12" y1="25" x2="24" y2="25"/>
-                    </svg>
-                    <p className="text-white/30 text-sm mb-1">No orders yet.</p>
-                    <p className="text-white/15 text-xs">Your equity purchases will appear here.</p>
-                    <button onClick={() => setSection("purchase")}
-                      className="mt-5 text-xs text-white/40 hover:text-white tracking-widest uppercase underline transition-colors"
-                      style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
-                      Place your first order ›
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    {/* Column headers — desktop */}
-                    <div className="px-5 py-3 border-b border-white/[0.06] hidden sm:grid gap-3" style={{ gridTemplateColumns: "1.4fr 0.9fr 0.9fr 1fr 1fr" }}>
-                      {["DATE & TIME", "SHARES", "PRICE/SH", "TOTAL", "STATUS"].map((h) => (
-                        <span key={h} className="text-white/20 text-[0.52rem] tracking-widest uppercase" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>{h}</span>
-                      ))}
-                    </div>
-
-                    <div className="divide-y divide-white/[0.04]">
-                      {[...(purchases as Purchase[])]
-                        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-                        .map((p, idx) => (
-                          <motion.div
-                            key={p.id}
-                            initial={{ opacity: 0, y: 6 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: idx * 0.04 }}
-                            className="px-5 py-4 flex flex-col sm:grid sm:items-center gap-2 hover:bg-white/[0.025] transition-colors"
-                            style={{ gridTemplateColumns: "1.4fr 0.9fr 0.9fr 1fr 1fr" }}
-                          >
-                            <div>
-                              <p className="text-white text-xs font-semibold">{format(new Date(p.createdAt), "MMM d, yyyy")}</p>
-                              <p className="text-white/25 text-[0.58rem] mt-0.5">{format(new Date(p.createdAt), "HH:mm 'UTC'")}</p>
-                            </div>
-                            <div>
-                              <p className="text-white font-black text-sm" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
-                                {Number(p.requestedShares).toLocaleString()}
-                              </p>
-                              <p className="text-white/25 text-[0.58rem]">shares</p>
-                            </div>
-                            <div>
-                              <p className="text-white/70 text-sm">${Number(p.pricePerShare).toLocaleString()}</p>
-                            </div>
-                            <div>
-                              <p className="text-white font-semibold text-sm">${Number(p.amountUsd).toLocaleString()}</p>
-                              <p className="text-white/25 text-[0.58rem]">USD</p>
-                            </div>
-                            <div>
-                              <span className={`inline-block text-[0.6rem] px-2.5 py-1 border font-black tracking-wide ${statusBadge(p.status)}`}
-                                style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
-                                {statusLabel(p.status)}
-                              </span>
-                            </div>
-                          </motion.div>
-                        ))}
-                    </div>
-                  </>
-                )}
-              </div>
             </motion.div>
           )}
 
@@ -1038,14 +1112,14 @@ export default function DashboardPage() {
                   icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.3" className="w-4 h-4"><line x1="3" y1="20.5" x2="21" y2="20.5" strokeWidth="0.6" strokeOpacity="0.45"/><line x1="3" y1="20.5" x2="3" y2="5" strokeWidth="0.6" strokeOpacity="0.45"/><polyline points="3,18 7,13 11,15.5 19,5.5" strokeWidth="1.6"/><circle cx="19" cy="5.5" r="1.6" fill="currentColor" stroke="none"/></svg> },
                 { id: "purchase" as Section, label: "Buy", navigate: false, verify: false,
                   icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.3" className="w-4 h-4"><polygon points="12,3 20.5,7.5 20.5,16.5 12,21 3.5,16.5 3.5,7.5"/><line x1="12" y1="9" x2="12" y2="15" strokeWidth="1.5"/><line x1="9" y1="12" x2="15" y2="12" strokeWidth="1.5"/></svg> },
-                { id: "transactions" as Section, label: "Orders", navigate: false, verify: false,
+                { id: "purchase" as Section, label: "Orders", navigate: true, verify: false, navPath: "/history",
                   icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.3" className="w-4 h-4"><rect x="4" y="3" width="16" height="18" rx="2"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="16" x2="12" y2="16"/></svg> },
                 { id: "apps" as Section, label: "Transfer", navigate: true, verify: false, navPath: "/transfer",
                   icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.3" className="w-4 h-4"><path d="M3 7h14m0 0-3-3m3 3-3 3"/><path d="M21 17H7m0 0 3-3m-3 3 3 3"/></svg> },
               ].map(({ id, label, icon, verify, navigate: isNavItem, navPath }) => (
                 <button
                   key={`${label}-${id}`}
-                  onClick={() => isNavItem && navPath ? navigate(navPath) : setSection(id)}
+                  onClick={() => { vib(); isNavItem && navPath ? navigate(navPath) : setSection(id); }}
                   className={`relative flex flex-col items-center gap-0.5 py-2 px-1 flex-1 rounded-xl transition-all ${
                     !isNavItem && section === id
                       ? "text-white bg-white/[0.12]"
@@ -1268,8 +1342,13 @@ function PurchaseForm({
   const [error, setError] = useState("");
   const [succeeded, setSucceeded] = useState<{ shares: number; total: number } | null>(null);
 
+  const BULK_DISCOUNT_MIN_SHARES = 20;
+  const BULK_DISCOUNT_PERCENT = 20;
   const numShares = Number(shares) || 0;
-  const totalAmount = numShares * sharePrice;
+  const originalAmount = numShares * sharePrice;
+  const discountApplies = numShares > BULK_DISCOUNT_MIN_SHARES;
+  const discountAmount = discountApplies ? originalAmount * (BULK_DISCOUNT_PERCENT / 100) : 0;
+  const totalAmount = originalAmount - discountAmount;
   const allDeclarations = decl1 && decl2 && decl4 && decl5;
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -1308,7 +1387,7 @@ function PurchaseForm({
           <p className="text-white font-black text-3xl mb-1" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
             {succeeded.shares.toLocaleString()} <span className="text-white/40 text-xl">shares</span>
           </p>
-          <p className="text-white/50 text-sm mb-1">${succeeded.total.toLocaleString(undefined, { maximumFractionDigits: 0 })} USD</p>
+          <p className="text-white/50 text-sm mb-1">${succeeded.total.toLocaleString(undefined, { maximumFractionDigits: 2 })} USD</p>
           <p className="text-white/30 text-xs mt-4 mb-7 leading-relaxed max-w-xs mx-auto">
             Your purchase order has been received. Payment instructions have been sent to your email. You will be notified once your order is confirmed.
           </p>
@@ -1368,10 +1447,26 @@ function PurchaseForm({
           {numShares > 0 && (
             <span className="ml-auto font-black text-base text-white"
               style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
-              ${totalAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              {discountApplies && (
+                <span className="text-white/30 line-through font-normal mr-1.5 text-sm">
+                  ${originalAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                </span>
+              )}
+              ${totalAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}
             </span>
           )}
         </div>
+        {discountApplies && (
+          <div className="mt-2 flex items-center gap-1.5 rounded-md border border-emerald-400/30 bg-emerald-400/[0.08] px-2.5 py-1.5 w-fit">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#34d399" strokeWidth="2" className="w-3.5 h-3.5 shrink-0"><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"/><path d="M4 6v12a2 2 0 0 0 2 2h14v-4"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>
+            <p className="text-emerald-400 text-[0.7rem] font-semibold">
+              20% bulk discount applied — you save ${discountAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+            </p>
+          </div>
+        )}
+        {!discountApplies && numShares > 0 && (
+          <p className="text-white/25 text-[0.65rem] mt-2">Buy more than {BULK_DISCOUNT_MIN_SHARES} shares to unlock a 20% bulk discount.</p>
+        )}
       </div>
 
       {/* Declarations */}
@@ -1419,7 +1514,7 @@ function PurchaseForm({
         className="w-full bg-white text-black font-black py-3 text-sm tracking-widest uppercase hover:bg-white/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
         style={{ fontFamily: "'Arial Black', Arial, sans-serif", letterSpacing: "0.1em" }}
       >
-        {submitting ? "SUBMITTING..." : `SUBMIT PURCHASE — $${totalAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })} ›`}
+        {submitting ? "SUBMITTING..." : `SUBMIT PURCHASE — ${totalAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })} ›`}
       </button>
     </form>
   );

@@ -80,7 +80,21 @@ export const api = {
   // Dashboard
   getDashboardSummary: () => apiFetch<DashboardSummary>("/dashboard/summary"),
   getTransfers: () => apiFetch<Transfer[]>("/dashboard/transfers"),
-  createTransfer: (body: { brokerageName: string; brokerageAccountNumber: string; accountHolderName: string }) =>
+  sendTransferOtp: () =>
+    apiFetch<{ ok: boolean }>("/dashboard/transfers/send-otp", { method: "POST" }),
+
+  createTransfer: (body: {
+    otpCode?: string;
+    mode?: "internal" | "brokerage";
+    amountToTransfer?: number;
+    asset?: string;
+    transferSubType?: "full" | "partial";
+    notes?: string;
+    recipientEmail?: string;
+    brokerageName?: string;
+    brokerageAccountNumber?: string;
+    accountHolderName?: string;
+  }) =>
     apiFetch<Transfer>("/dashboard/transfers", { method: "POST", body: JSON.stringify(body) }),
 
   // Admin
@@ -115,7 +129,7 @@ export const api = {
     apiFetch<{ ok: boolean; userId: string; email: string }>(`/admin/users/${userId}/set-password`, { method: "POST", body: JSON.stringify({ password }) }),
   getSmtpStatus: () => apiFetch<SmtpStatus>("/admin/smtp-status"),
   getAdminTransfers: () => apiFetch<AdminTransfer[]>("/admin/transfers"),
-  updateAdminTransferStatus: (id: string, status: "queued" | "transfer_requested" | "completed") =>
+  updateAdminTransferStatus: (id: string, status: "queued" | "transfer_requested" | "pending_review" | "under_review" | "awaiting_documents" | "approved" | "processing" | "completed" | "rejected") =>
     apiFetch<AdminTransfer>(`/admin/transfers/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) }),
 
   // Certificate
@@ -143,6 +157,11 @@ export const api = {
   // Price (Yahoo Finance proxy)
   getPriceHistory: () => apiFetch<{ points: OHLCPoint[] }>("/price/history"),
   getPriceQuote: () => apiFetch<{ price: number; prevClose: number; change: number; changePercent: number }>("/price/quote"),
+  getPublicStats: () => apiFetch<PublicStats>("/price/public-stats"),
+
+  // Admin — Live Price Sync
+  syncPrice: () =>
+    apiFetch<{ ok: boolean; price: number }>("/admin/sync-price", { method: "POST" }),
 
   // Price Alerts
   getAlerts: () => apiFetch<PriceAlert[]>("/alerts"),
@@ -215,6 +234,9 @@ export interface Purchase {
   requestedShares: number;
   pricePerShare: number;
   status: "pending_review" | "confirmed" | "rejected";
+  discountPercent?: number;
+  originalAmountUsd?: number;
+  discountAmountUsd?: number;
   createdAt: string;
 }
 
@@ -230,9 +252,19 @@ export interface DashboardSummary {
 export interface Transfer {
   id: string;
   userId: string;
+  mode: "brokerage" | "internal";
+  requestId: string;
   brokerageName: string;
   brokerageAccountNumber: string;
   accountHolderName: string;
+  emailAddress: string | null;
+  amountToTransfer: number | null;
+  asset: string | null;
+  transferSubType: "full" | "partial" | null;
+  notes: string | null;
+  recipientEmail: string | null;
+  counterpartyEmail?: string | null;
+  direction?: "sent" | "received";
   status: string;
   createdAt: string;
 }
@@ -267,6 +299,9 @@ export interface AdminPurchase {
   requestedShares: number;
   pricePerShare: number;
   status: "pending_review" | "confirmed" | "rejected";
+  discountPercent?: number;
+  originalAmountUsd?: number;
+  discountAmountUsd?: number;
   createdAt: string;
 }
 
@@ -281,6 +316,15 @@ export interface OHLCPoint {
   open: number; high: number; low: number; close: number; volume: number;
 }
 
+export interface PublicStats {
+  sharePrice: number;
+  valuation: number;
+  accreditedInvestors: number;
+  ticker: string;
+  source: string;
+  updatedAt: string;
+}
+
 export interface PriceAlert {
   id: string;
   targetPrice: number;
@@ -293,9 +337,17 @@ export interface AdminTransfer {
   userId: string;
   userFullName: string;
   userEmail: string;
+  mode: "brokerage" | "internal";
+  requestId: string;
   brokerageName: string;
   brokerageAccountNumber: string;
   accountHolderName: string;
-  status: "queued" | "transfer_requested" | "completed";
+  emailAddress: string | null;
+  amountToTransfer: number | null;
+  asset: string | null;
+  transferSubType: "full" | "partial" | null;
+  notes: string | null;
+  recipientEmail: string | null;
+  status: "queued" | "transfer_requested" | "pending_review" | "under_review" | "awaiting_documents" | "approved" | "processing" | "completed" | "rejected";
   createdAt: string;
 }

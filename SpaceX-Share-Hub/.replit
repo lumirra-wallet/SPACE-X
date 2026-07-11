@@ -57,3 +57,4 @@ channel = "stable-25_05"
 [userenv]
 
 [userenv.shared]
+LOGODEV_TOKEN = "pk_aZ7F_cDnSCeVSaQ1jDmsSQ"

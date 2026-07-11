@@ -43,3 +43,4 @@ _Populate as you build — sharp edges, "always run X before Y" rules._
 ## Pointers
 
 - See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
+- See `RAILWAY_DEPLOY.md` for deploying this project to Railway (Dockerfile-based, single service: API server serves the built frontend)

@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
-import { useUser } from "@/hooks/useUser";
+import { useUser, useSettings } from "@/hooks/useUser";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
-import appLogo from "@assets/xpsca_1778445100452.png";
+import appLogo from "@/assets/logo.png";
 
 function SpaceXLogo({ className = "" }: { className?: string }) {
   return <img src={appLogo} alt="SpaceX" className={className} />;
@@ -66,6 +66,8 @@ function SectionHeading({ num, total, title, sub }: { num: number; total: number
 export default function OnboardingPage() {
   const { isSignedIn, isLoaded } = useAuth();
   const { user, isLoading: userLoading, verifyInvestor } = useUser();
+  const { data: settings } = useSettings();
+  const isPostIpo = settings?.systemMode === "post_ipo";
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const [submitting, setSubmitting] = useState(false);
@@ -168,7 +170,7 @@ export default function OnboardingPage() {
         <SpaceXLogo className="h-5 w-auto" />
         <span className="text-white/30 text-[0.6rem] tracking-[0.2em] uppercase"
           style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
-          INVESTOR APPLICATION
+          {isPostIpo ? "SHAREHOLDER APPLICATION" : "INVESTOR APPLICATION"}
         </span>
       </header>
 
@@ -192,7 +194,9 @@ export default function OnboardingPage() {
         <div className="max-w-2xl mx-auto">
           <p className="text-white/60 text-sm leading-relaxed">
             Welcome, <span className="text-white font-semibold">{user.fullName}</span>. Your email has been verified.
-            Please complete the final declarations below to activate your investor account.
+            {isPostIpo
+              ? " SpaceX (NASDAQ: SPCX) is now publicly traded. Please complete the declarations below to activate trading and settlement on your account."
+              : " Please complete the final declarations below to activate your investor account."}
           </p>
         </div>
       </div>
@@ -206,8 +210,9 @@ export default function OnboardingPage() {
             <div ref={sectionRefs[0]} id="section-0">
               <SectionHeading num={1} total={2} title="ACCREDITED INVESTOR DECLARATION" sub="Eligibility" />
               <p className="text-white/40 text-sm mb-6 leading-relaxed">
-                Under SEC Regulation D, only accredited investors may participate in this private placement.
-                Review each criterion and tick any that apply to you.
+                {isPostIpo
+                  ? "SpaceX shares purchased through this platform originate from a pre-IPO allocation still subject to SEC Regulation D. Only accredited investors may transact in these shares prior to full lock-up expiry. Review each criterion and tick any that apply to you."
+                  : "Under SEC Regulation D, only accredited investors may participate in this private placement. Review each criterion and tick any that apply to you."}
               </p>
 
               <div className="border border-white/[0.07] divide-y divide-white/[0.05] mb-6">
@@ -263,13 +268,17 @@ export default function OnboardingPage() {
 
               <div className="space-y-5">
                 <CheckRow checked={decl1} onChange={setDecl1}>
-                  I acknowledge that investing in private pre-IPO securities involves substantial risk, including the risk of total loss of my investment, and that this investment is illiquid and may remain so indefinitely.
+                  {isPostIpo
+                    ? "I acknowledge that investing in newly public equity involves substantial risk, including significant price volatility and the risk of total loss of my investment."
+                    : "I acknowledge that investing in private pre-IPO securities involves substantial risk, including the risk of total loss of my investment, and that this investment is illiquid and may remain so indefinitely."}
                 </CheckRow>
                 <CheckRow checked={decl2} onChange={setDecl2}>
                   I understand that there is no guarantee of returns or profits from this investment, and that past performance of SpaceX or any related entity is not indicative of future results.
                 </CheckRow>
                 <CheckRow checked={decl3} onChange={setDecl3}>
-                  I understand that my shares are subject to transfer restrictions and lock-up periods, and that I may not be able to sell or transfer my shares until after an IPO or other liquidity event, if at all.
+                  {isPostIpo
+                    ? "I understand that shares allocated prior to the IPO remain subject to lock-up and transfer restrictions, and that trading or transfer availability is governed by the platform's post-IPO release schedule."
+                    : "I understand that my shares are subject to transfer restrictions and lock-up periods, and that I may not be able to sell or transfer my shares until after an IPO or other liquidity event, if at all."}
                 </CheckRow>
                 <CheckRow checked={decl4} onChange={setDecl4}>
                   I certify that all information provided in this application is true, accurate, and complete to the best of my knowledge, and I will promptly notify the platform of any material change in my circumstances.
@@ -284,6 +293,7 @@ export default function OnboardingPage() {
                   By submitting this application, you are entering into a legally binding self-certification of
                   your accredited investor status under SEC Regulation D, Rule 506(c). Submitting false information
                   may constitute securities fraud.
+                  {isPostIpo && " SpaceX completed its IPO under ticker SPCX; this certification governs your pre-IPO share allocation until its lock-up restrictions lapse."}
                 </p>
 
                 <button

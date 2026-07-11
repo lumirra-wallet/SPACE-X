@@ -334,8 +334,12 @@ router.post("/auth/login/otp", async (req: Request, res: Response): Promise<void
   const otp = String(Math.floor(100000 + Math.random() * 900000));
   cleanStore(loginOtpStore);
   loginOtpStore.set(key, { otp, expiresAt: Date.now() + 10 * 60 * 1000 });
-  sendSignInCode(key, otp).catch(() => {});
-  res.json({ ok: true });
+  try {
+    await sendSignInCode(key, otp);
+    res.json({ ok: true });
+  } catch {
+    res.status(500).json({ error: "Failed to send sign-in code. Please try again or use password login." });
+  }
 });
 
 router.post("/auth/login/verify", async (req: Request, res: Response): Promise<void> => {
@@ -375,7 +379,10 @@ router.post("/auth/forgot-password", async (req: Request, res: Response): Promis
   cleanStore(resetOtpStore);
   const otp = String(Math.floor(100000 + Math.random() * 900000));
   resetOtpStore.set(key, { otp, expiresAt: Date.now() + 10 * 60 * 1000 });
-  sendPasswordResetCode(key, otp).catch(() => {});
+  // Security: always return ok to avoid email enumeration — but log failures
+  sendPasswordResetCode(key, otp).catch((err: unknown) => {
+    console.error("Failed to send password reset code:", err);
+  });
   res.json({ ok: true });
 });
 

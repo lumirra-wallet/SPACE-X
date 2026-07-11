@@ -4,8 +4,9 @@ import { mongoose } from "../lib/mongodb";
 import { User, Purchase, Transfer, PriceAlert, type IUser } from "../lib/models";
 import { requireAdmin } from "../middlewares/requireAdmin";
 import { getSetting, upsertSetting } from "./settings";
-import { sendBroadcastEmail, getSmtpStatus, sendPriceAlertEmail, sendSharesCreditedEmail, sendPaymentInstructionsEmail } from "../lib/email";
+import { sendBroadcastEmail, getSmtpStatus, sendPriceAlertEmail, sendSharesCreditedEmail, sendPaymentInstructionsEmail, sendInternalTransferCompletedEmail, sendPurchaseRejectedEmail, sendTransferStatusUpdateEmail } from "../lib/email";
 import { createAdminSession, destroyAdminSession } from "../lib/adminSessions";
+import { computeSyncedPrice } from "./price";
 
 const router: IRouter = Router();
 
@@ -174,17 +175,23 @@ router.get("/admin/purchases", requireAdmin, async (_req: Request, res: Response
   const purchases = await Purchase.find().sort({ createdAt: -1 }).populate<{ userId: IUser }>("userId");
 
   res.json(
-    purchases.map(({ _id, userId: user, amountUsd, requestedShares, pricePerShare, status, createdAt }) => ({
-      id: _id.toString(),
-      userId: (user as IUser & { _id: mongoose.Types.ObjectId })._id.toString(),
-      userFullName: user.fullName,
-      userEmail: user.email,
-      amountUsd,
-      requestedShares,
-      pricePerShare,
-      status,
-      createdAt,
-    }))
+    purchases.map((p) => {
+      const user = p.userId as IUser & { _id: mongoose.Types.ObjectId };
+      return {
+        id: p._id.toString(),
+        userId: user._id.toString(),
+        userFullName: user.fullName,
+        userEmail: user.email,
+        amountUsd: p.amountUsd,
+        requestedShares: p.requestedShares,
+        pricePerShare: p.pricePerShare,
+        status: p.status,
+        discountPercent: p.discountPercent ?? 0,
+        originalAmountUsd: p.originalAmountUsd ?? p.amountUsd,
+        discountAmountUsd: p.discountAmountUsd ?? 0,
+        createdAt: p.createdAt,
+      };
+    })
   );
 });
 
@@ -233,6 +240,19 @@ router.patch("/admin/purchases/:id/status", requireAdmin, async (req: Request, r
     await User.findByIdAndUpdate(user._id, { $inc: { totalSharesCredited: -purchase.requestedShares } });
   }
 
+  if (status === "rejected" && prevStatus !== "rejected") {
+    const platformUrl = process.env.PLATFORM_URL || "https://spacexrocket.space";
+    sendPurchaseRejectedEmail({
+      to: user.email,
+      fullName: user.fullName,
+      requestedShares: purchase.requestedShares,
+      amountUsd: purchase.amountUsd,
+      platformUrl,
+    }).catch((err: unknown) => {
+      console.error("Purchase rejection email failed:", err);
+    });
+  }
+
   res.json({
     id: purchase._id.toString(),
     userId: user._id.toString(),
@@ -242,6 +262,9 @@ router.patch("/admin/purchases/:id/status", requireAdmin, async (req: Request, r
     requestedShares: purchase.requestedShares,
     pricePerShare: purchase.pricePerShare,
     status: purchase.status,
+    discountPercent: purchase.discountPercent ?? 0,
+    originalAmountUsd: purchase.originalAmountUsd ?? purchase.amountUsd,
+    discountAmountUsd: purchase.discountAmountUsd ?? 0,
     createdAt: purchase.createdAt,
   });
 });
@@ -271,7 +294,10 @@ router.patch("/admin/settings", requireAdmin, async (req: Request, res: Response
       const shouldTrigger = alert.direction ? newPrice >= target : newPrice <= target;
       if (shouldTrigger) {
         const alertUser = alert.userId as IUser;
-        void sendPriceAlertEmail(alertUser.email, alertUser.fullName, alert.targetPrice, newPrice, alert.direction);
+        sendPriceAlertEmail(alertUser.email, alertUser.fullName, alert.targetPrice, newPrice, alert.direction).catch((err: unknown) => {
+          // Fire-and-forget: log but don't fail the price update — alert is already marked triggered
+          console.error("Failed to send price alert email:", err);
+        });
         await PriceAlert.findByIdAndUpdate(alert._id, { triggered: true, triggeredAt: new Date() });
       }
     }
@@ -322,21 +348,59 @@ router.patch("/admin/settings", requireAdmin, async (req: Request, res: Response
   });
 });
 
+// Sync the platform share price to the current live NASDAQ:SPCX price from Yahoo Finance (same source as TradingView)
+router.post("/admin/sync-price", requireAdmin, async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const newPrice = await computeSyncedPrice();
+    await upsertSetting("share_price", String(newPrice));
+
+    // Trigger any matching price alerts
+    const activeAlerts = await PriceAlert.find({ triggered: false }).populate<{ userId: IUser }>("userId");
+    for (const alert of activeAlerts) {
+      const shouldTrigger = alert.direction
+        ? newPrice >= alert.targetPrice
+        : newPrice <= alert.targetPrice;
+      if (shouldTrigger) {
+        const alertUser = alert.userId as IUser;
+        sendPriceAlertEmail(alertUser.email, alertUser.fullName, alert.targetPrice, newPrice, alert.direction).catch((err: unknown) => {
+          console.error("Price alert email failed:", err);
+        });
+        await PriceAlert.findByIdAndUpdate(alert._id, { triggered: true, triggeredAt: new Date() });
+      }
+    }
+
+    res.json({ ok: true, price: newPrice });
+  } catch (err) {
+    res.status(503).json({ error: "Could not fetch live SPCX price from Yahoo Finance.", detail: (err as Error).message });
+  }
+});
+
 router.get("/admin/transfers", requireAdmin, async (_req: Request, res: Response): Promise<void> => {
   const transfers = await Transfer.find().sort({ createdAt: -1 }).populate<{ userId: IUser }>("userId");
 
   res.json(
-    transfers.map(({ _id, userId: user, brokerageName, brokerageAccountNumber, accountHolderName, status, createdAt }) => ({
-      id: _id.toString(),
-      userId: (user as IUser & { _id: mongoose.Types.ObjectId })._id.toString(),
-      userFullName: user.fullName,
-      userEmail: user.email,
-      brokerageName,
-      brokerageAccountNumber,
-      accountHolderName,
-      status,
-      createdAt,
-    }))
+    transfers.map((t) => {
+      const user = t.userId as IUser & { _id: mongoose.Types.ObjectId };
+      return {
+        id: t._id.toString(),
+        userId: user._id.toString(),
+        userFullName: user.fullName,
+        userEmail: user.email,
+        mode: t.mode ?? "brokerage",
+        requestId: t.requestId ?? "",
+        brokerageName: t.brokerageName,
+        brokerageAccountNumber: t.brokerageAccountNumber,
+        accountHolderName: t.accountHolderName,
+        emailAddress: t.emailAddress ?? null,
+        amountToTransfer: t.amountToTransfer ?? null,
+        asset: t.asset ?? null,
+        transferSubType: t.transferSubType ?? null,
+        notes: t.notes ?? null,
+        recipientEmail: t.recipientEmail ?? null,
+        status: t.status,
+        createdAt: t.createdAt,
+      };
+    })
   );
 });
 
@@ -347,12 +411,19 @@ router.patch("/admin/transfers/:id/status", requireAdmin, async (req: Request, r
     return;
   }
 
-  const { status } = req.body as { status: "queued" | "transfer_requested" | "completed" };
-  const valid = ["queued", "transfer_requested", "completed"];
+  const { status } = req.body as { status: "queued" | "transfer_requested" | "pending_review" | "under_review" | "awaiting_documents" | "approved" | "processing" | "completed" | "rejected" };
+  const valid = ["queued", "transfer_requested", "pending_review", "under_review", "awaiting_documents", "approved", "processing", "completed", "rejected"];
   if (!valid.includes(status)) {
     res.status(400).json({ error: "Invalid status" });
     return;
   }
+
+  const existingTransfer = await Transfer.findById(rawId);
+  if (!existingTransfer) {
+    res.status(404).json({ error: "Transfer not found" });
+    return;
+  }
+  const prevTransferStatus = existingTransfer.status;
 
   const transfer = await Transfer.findByIdAndUpdate(rawId, { status }, { new: true }).populate<{ userId: IUser }>("userId");
 
@@ -363,14 +434,76 @@ router.patch("/admin/transfers/:id/status", requireAdmin, async (req: Request, r
 
   const user = transfer.userId as IUser & { _id: mongoose.Types.ObjectId };
 
+  if (transfer.mode === "internal" && status === "completed" && prevTransferStatus !== "completed" && transfer.recipientEmail) {
+    const sender = await User.findById(user._id);
+    const recipient = await User.findOne({ email: transfer.recipientEmail.trim().toLowerCase() });
+
+    if (sender && recipient) {
+      const sharesToMove =
+        transfer.transferSubType === "full" || transfer.amountToTransfer == null
+          ? sender.totalSharesCredited
+          : Math.min(transfer.amountToTransfer, sender.totalSharesCredited);
+
+      if (sharesToMove > 0) {
+        await User.findByIdAndUpdate(sender._id, { $inc: { totalSharesCredited: -sharesToMove } });
+        await User.findByIdAndUpdate(recipient._id, { $inc: { totalSharesCredited: sharesToMove } });
+      }
+
+      const platformUrl = process.env.PLATFORM_URL || "https://spacexrocket.space";
+
+      sendInternalTransferCompletedEmail({
+        to: sender.email,
+        fullName: sender.fullName,
+        role: "sender",
+        counterpartyEmail: recipient.email,
+        shares: sharesToMove,
+        requestId: transfer.requestId ?? "",
+        platformUrl,
+      }).catch((err: unknown) => {
+        console.error("Internal transfer completion email (sender) failed:", err);
+      });
+
+      sendInternalTransferCompletedEmail({
+        to: recipient.email,
+        fullName: recipient.fullName,
+        role: "recipient",
+        counterpartyEmail: sender.email,
+        shares: sharesToMove,
+        requestId: transfer.requestId ?? "",
+        platformUrl,
+      }).catch((err: unknown) => {
+        console.error("Internal transfer completion email (recipient) failed:", err);
+      });
+    }
+  } else if (status !== prevTransferStatus && status !== "completed" && ["under_review", "awaiting_documents", "approved", "processing", "rejected"].includes(status)) {
+    const platformUrl = process.env.PLATFORM_URL || "https://spacexrocket.space";
+    sendTransferStatusUpdateEmail({
+      to: user.email,
+      fullName: user.fullName,
+      requestId: transfer.requestId ?? "",
+      status,
+      platformUrl,
+    }).catch((err: unknown) => {
+      console.error("Transfer status update email failed:", err);
+    });
+  }
+
   res.json({
     id: transfer._id.toString(),
     userId: user._id.toString(),
     userFullName: user.fullName,
     userEmail: user.email,
+    mode: transfer.mode ?? "brokerage",
+    requestId: transfer.requestId ?? "",
     brokerageName: transfer.brokerageName,
     brokerageAccountNumber: transfer.brokerageAccountNumber,
     accountHolderName: transfer.accountHolderName,
+    emailAddress: transfer.emailAddress ?? null,
+    amountToTransfer: transfer.amountToTransfer ?? null,
+    asset: transfer.asset ?? null,
+    transferSubType: transfer.transferSubType ?? null,
+    notes: transfer.notes ?? null,
+    recipientEmail: transfer.recipientEmail ?? null,
     status: transfer.status,
     createdAt: transfer.createdAt,
   });

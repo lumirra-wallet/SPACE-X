@@ -1,14 +1,17 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
 import { setToken } from "@/lib/auth";
-import { motion, useScroll, useTransform } from "framer-motion";
-import appLogo from "@assets/xpsca_1778445100452.png";
-import missionVideo from "@assets/videoplayback_(1)_1778429580494.mp4";
+import { motion, useReducedMotion, useScroll, useTransform } from "framer-motion";
+import appLogo from "@/assets/logo.png";
+import missionVideo from "@/assets/mission-video.mp4";
+import { MarsPlanet } from "@/components/MarsPlanet";
+import "./broker-puzzle.css";
 
-import { useUser } from "@/hooks/useUser";
-import { useQueryClient } from "@tanstack/react-query";
+import { useUser, useSettings } from "@/hooks/useUser";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { BROKERS, BrokerLogo } from "@/lib/brokers";
 
 const COUNTRIES = [
   "United States","United Kingdom","Canada","Australia","Germany","France","Singapore","UAE",
@@ -308,7 +311,7 @@ const HERO_SLIDES = [
 ];
 
 const stats = [
-  { label: "Company Valuation", value: "$1.77T" },
+  { label: "Company Valuation", value: "—" },
   { label: "Accredited Investors", value: "12,000+" },
   { label: "Share Price", value: "$130" },
   { label: "Listed On Nasdaq", value: "SPCX" },
@@ -361,7 +364,7 @@ function SpaceXLogo({ className = "" }: { className?: string }) {
 
 const YOUTUBE_VIDEO_ID = "sX1Y2JMK6g8";
 
-function HeroSlider({ onInvest, onSignIn }: { onInvest: () => void; onSignIn: () => void }) {
+function HeroSlider({ onInvest, onSignIn, sharePrice }: { onInvest: () => void; onSignIn: () => void; sharePrice: number }) {
   const [current, setCurrent] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -376,26 +379,26 @@ function HeroSlider({ onInvest, onSignIn }: { onInvest: () => void; onSignIn: ()
 
   return (
     <div className="relative w-full h-screen overflow-hidden bg-black">
-      {/* Fading background images */}
-      {HERO_SLIDES.map((s, i) => (
-        <motion.div
-          key={s.image}
-          className="absolute inset-0"
-          animate={{ opacity: i === current ? 1 : 0 }}
-          transition={{ duration: 1.2 }}
-        >
-          <img
-            src={s.image}
-            alt=""
-            className="w-full h-full object-cover"
-            style={{ filter: "brightness(0.45)" }}
-          />
-        </motion.div>
-      ))}
-
+      {/* Rotating 3D Mars — pushed to the right side */}
+      <div className="absolute inset-0 flex items-center justify-center sm:justify-end pointer-events-none">
+        <MarsPlanet className="w-[140vw] h-[140vw] sm:w-[75vh] sm:h-[75vh] sm:translate-x-[28%] max-w-none opacity-90" />
+      </div>
+      {/* Dark shadow across the near half of the planet, like a terminator line — lighter on mobile since the planet is centered rather than pushed off-frame */}
+      <div className="absolute inset-0 flex items-center justify-center sm:hidden pointer-events-none">
+        <div
+          className="w-[140vw] h-[140vw] rounded-full"
+          style={{ background: "linear-gradient(100deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.3) 25%, rgba(0,0,0,0.05) 45%, transparent 60%)" }}
+        />
+      </div>
+      <div className="absolute inset-0 hidden sm:flex items-center justify-end pointer-events-none">
+        <div
+          className="w-[75vh] h-[75vh] translate-x-[28%] rounded-full"
+          style={{ background: "linear-gradient(100deg, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.65) 28%, rgba(0,0,0,0.15) 52%, transparent 65%)" }}
+        />
+      </div>
       {/* Gradient overlay */}
       <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-black/70 pointer-events-none" />
-
+      <div className="absolute inset-y-0 left-0 w-full sm:w-3/5 pointer-events-none bg-gradient-to-r from-black via-black/60 to-transparent" />
       {/* Content */}
       <div className="absolute inset-0 flex flex-col justify-end pb-40 md:pb-44 px-5 md:px-16 lg:px-24">
         <motion.div
@@ -417,12 +420,12 @@ function HeroSlider({ onInvest, onSignIn }: { onInvest: () => void; onSignIn: ()
             {slide.headline}
           </h1>
           <p className="text-white/70 text-sm md:text-lg max-w-xl mb-6 tracking-wide leading-relaxed">
-            {slide.sub}
+            {slide.sub.replace("$130", `$${sharePrice.toLocaleString()}`)}
           </p>
           <div className="flex flex-col sm:flex-row gap-3">
             <button
               onClick={onInvest}
-              className="px-6 py-3 bg-white text-black font-bold tracking-widest text-xs uppercase hover:bg-white/90 transition-colors"
+              className="px-6 py-3 bg-white text-black font-bold tracking-widest text-xs uppercase hover:bg-white/90 transition-colors rounded-tl-[22px] rounded-tr-[22px] rounded-br-[22px] rounded-bl-[22px]"
               style={{ fontFamily: "'Arial Black', Arial, sans-serif", letterSpacing: "0.1em" }}
             >
               APPLY FOR ACCESS ›
@@ -437,7 +440,6 @@ function HeroSlider({ onInvest, onSignIn }: { onInvest: () => void; onSignIn: ()
           </div>
         </motion.div>
       </div>
-
       {/* Slide dots — bottom left */}
       <div className="absolute bottom-8 left-5 md:left-16 flex gap-2 z-10">
         {HERO_SLIDES.map((_, i) => (
@@ -448,7 +450,6 @@ function HeroSlider({ onInvest, onSignIn }: { onInvest: () => void; onSignIn: ()
           />
         ))}
       </div>
-
       {/* Scroll indicator — bottom center */}
       <div className="absolute bottom-8 left-0 right-0 flex flex-col items-center gap-1.5 pointer-events-none">
         <span className="text-white/35 text-[0.6rem] tracking-[0.25em] uppercase" style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>Scroll</span>
@@ -462,6 +463,79 @@ function HeroSlider({ onInvest, onSignIn }: { onInvest: () => void; onSignIn: ()
         </motion.div>
       </div>
     </div>
+  );
+}
+
+function MarsSection({ onExplore }: { onExplore: () => void }) {
+  const [current, setCurrent] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    timerRef.current = setInterval(() => {
+      setCurrent((c) => (c + 1) % HERO_SLIDES.length);
+    }, 4000);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, []);
+
+  return (
+    <section id="mars-section" className="relative w-full overflow-hidden bg-black flex items-center text-justify flex-col py-16 md:py-24">
+      {/* Content wrapper — the slideshow background is sized to exactly match this block, not the whole section */}
+      <div className="relative z-10 w-full px-5 md:px-16 lg:px-24 max-w-3xl py-10 md:py-14">
+        {/* Slide images — background clipped to the content block's own height/width, cycling one after another */}
+        <div className="absolute inset-0 -z-10 overflow-hidden" aria-hidden="true">
+          {HERO_SLIDES.map((s, i) => (
+            <motion.div
+              key={s.image}
+              className="absolute inset-0"
+              initial={false}
+              animate={{ opacity: i === current ? 1 : 0 }}
+              transition={{ duration: 1.6, ease: "easeInOut" }}
+            >
+              <img src={s.image} alt="" className="w-full h-full object-cover object-center" />
+            </motion.div>
+          ))}
+          {/* Vignette to blend imagery into black background and keep text legible */}
+          <div className="absolute inset-y-0 left-0 w-full sm:w-3/4 pointer-events-none bg-gradient-to-r from-black via-black/80 to-transparent" />
+          <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-black/50 via-black/10 to-black/60" />
+
+          {/* Slide dots */}
+          <div className="absolute bottom-3 right-4 flex gap-1.5">
+            {HERO_SLIDES.map((_, i) => (
+              <span
+                key={i}
+                className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${i === current ? "bg-white scale-125" : "bg-white/30"}`}
+              />
+            ))}
+          </div>
+        </div>
+
+        <h2
+          className="text-white font-black mb-6 leading-[0.95] whitespace-normal sm:whitespace-nowrap"
+          style={{
+            fontSize: "clamp(2.1rem, 6.5vw, 4.75rem)",
+            fontFamily: "'Arial Black', Arial, sans-serif",
+            letterSpacing: "0.02em",
+            overflowWrap: "anywhere",
+            wordBreak: "break-word",
+          }}
+        >
+          MAKING LIFE
+          <br />
+          MULTIPLANETARY
+        </h2>
+        <p className="text-white/70 text-base md:text-xl max-w-lg mb-8 tracking-wide leading-relaxed">
+          SpaceX was founded under the belief that a future where humanity is out exploring the stars is fundamentally more exciting than one where we are not.
+        </p>
+        <button
+          onClick={onExplore}
+          className="group inline-flex items-center gap-2 px-8 py-4 bg-white text-black font-bold tracking-widest text-sm uppercase hover:bg-white/90 transition-colors rounded-full"
+          style={{ fontFamily: "'Arial Black', Arial, sans-serif", letterSpacing: "0.1em" }}
+        >
+          EXPLORE
+          <span className="transition-transform group-hover:translate-x-1">›</span>
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -572,12 +646,24 @@ function VideoSection() {
   );
 }
 
-function StatBar() {
+function formatValuation(v: number): string {
+  if (v >= 1_000_000_000_000) return `${(v / 1_000_000_000_000).toFixed(2)}T`;
+  if (v >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(1)}B`;
+  return `${v.toLocaleString()}`;
+}
+
+function StatBar({ sharePrice, valuation, accreditedInvestors }: { sharePrice: number; valuation: number | undefined; accreditedInvestors: number | undefined }) {
+  const liveStats = stats.map((s) => {
+    if (s.label === "Share Price") return { ...s, value: `${sharePrice.toLocaleString()}` };
+    if (s.label === "Company Valuation" && valuation) return { ...s, value: formatValuation(valuation) };
+    if (s.label === "Accredited Investors" && accreditedInvestors !== undefined) return { ...s, value: `${accreditedInvestors.toLocaleString()}+` };
+    return s;
+  });
   return (
     <section className="bg-black border-y border-white/10 py-12">
       <div className="max-w-7xl mx-auto px-6 md:px-16">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
-          {stats.map((s, i) => (
+          {liveStats.map((s, i) => (
             <motion.div
               key={s.label}
               initial={{ opacity: 0, y: 15 }}
@@ -631,38 +717,184 @@ function VehicleCard({ name, desc, image, index }: { name: string; desc: string;
   );
 }
 
-const BROKERS = [
-  { name: "Fidelity",             logoUrl: "/brokers/fidelity.svg" },
-  { name: "Charles Schwab",       logoUrl: "/brokers/schwab.svg" },
-  { name: "Interactive Brokers",  logoUrl: "/brokers/ibkr.svg" },
-  { name: "TD Ameritrade",        logoUrl: "/brokers/tdameritrade.svg" },
-  { name: "Robinhood",            logoUrl: "/brokers/robinhood.svg" },
-  { name: "eToro",                logoUrl: "/brokers/etoro.svg" },
-  { name: "Trading 212",          logoUrl: "/brokers/trading212.svg" },
-  { name: "Saxo Bank",            logoUrl: "/brokers/saxo.svg" },
-  { name: "DEGIRO",               logoUrl: "/brokers/degiro.svg" },
-  { name: "Hargreaves Lansdown",  logoUrl: "/brokers/hl.svg" },
-  { name: "CMC Markets",          logoUrl: "/brokers/cmc.svg" },
-  { name: "IG Group",             logoUrl: "/brokers/ig.svg" },
-  { name: "Merrill Edge",         logoUrl: "/brokers/merrill.svg" },
-  { name: "Vanguard",             logoUrl: "/brokers/vanguard.svg" },
-  { name: "Webull",               logoUrl: "/brokers/webull.svg" },
-  { name: "Moomoo",               logoUrl: "/brokers/moomoo.svg" },
-  { name: "Freetrade",            logoUrl: "/brokers/freetrade.svg" },
-  { name: "Plus500",              logoUrl: "/brokers/plus500.svg" },
-  { name: "XTB",                  logoUrl: "/brokers/xtb.svg" },
-  { name: "Firstrade",            logoUrl: "/brokers/firstrade.svg" },
-];
+const PUZZLE_COLS = 6;
+const PUZZLE_ROWS = 4;
+const PUZZLE_SIZE = PUZZLE_COLS * PUZZLE_ROWS;
+
+/** Deterministic pseudo-random shuffle so SSR/first paint never mismatches. */
+function seededShuffle<T>(arr: T[], seed: number): T[] {
+  const a = [...arr];
+  let s = seed;
+  for (let i = a.length - 1; i > 0; i--) {
+    s = (s * 9301 + 49297) % 233280;
+    const j = Math.floor((s / 233280) * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/**
+ * PuzzleBoard — a grid of broker-logo jigsaw pieces that appears scrambled,
+ * then an animated "cursor" visits each out-of-place piece one at a time and
+ * snaps it home, exactly like someone solving a physical puzzle. Once fully
+ * solved, the board holds, celebrates briefly, then re-scrambles and repeats.
+ * All timers are cleaned up on unmount so there is no runaway loop.
+ */
+function PuzzleBoard({ brokers }: { brokers: readonly (typeof BROKERS)[number][] }) {
+  const pieces = useMemo(() => brokers.slice(0, PUZZLE_SIZE), [brokers]);
+  const solvedOrder = useMemo(() => pieces.map((_, i) => i), [pieces]);
+
+  const [cycle, setCycle] = useState(0);
+  const [order, setOrder] = useState<number[]>(() => seededShuffle(solvedOrder, 7));
+  const [solvedCount, setSolvedCount] = useState(0);
+  const [cursorSlot, setCursorSlot] = useState<number | null>(null);
+  const [paused, setPaused] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const prefersReducedMotion = useReducedMotion();
+
+  useEffect(() => {
+    if (paused) return;
+
+    // Respect users who've asked for less motion — show the solved board
+    // once, statically, instead of continuously animating pieces.
+    if (prefersReducedMotion) {
+      setOrder(solvedOrder);
+      setSolvedCount(PUZZLE_SIZE);
+      setCursorSlot(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+
+    // Fresh scramble for this cycle.
+    const scrambled = seededShuffle(solvedOrder, 11 + cycle * 17);
+    setOrder(scrambled);
+    setSolvedCount(0);
+    setCursorSlot(null);
+
+    // Snap one piece into place at a time, slot by slot, like a hand working
+    // through the puzzle left-to-right, top-to-bottom.
+    for (let slot = 0; slot < PUZZLE_SIZE; slot++) {
+      timers.push(
+        setTimeout(() => {
+          if (cancelled) return;
+          setCursorSlot(slot);
+          timers.push(
+            setTimeout(() => {
+              if (cancelled) return;
+              setOrder((prev) => {
+                const next = [...prev];
+                const correctValue = solvedOrder[slot];
+                const fromIdx = next.indexOf(correctValue);
+                if (fromIdx !== -1) {
+                  [next[slot], next[fromIdx]] = [next[fromIdx], next[slot]];
+                }
+                return next;
+              });
+              setSolvedCount((c) => c + 1);
+            }, 260),
+          );
+        }, 420 + slot * 340),
+      );
+    }
+
+    // Hold the fully-solved board, then start the next scramble/solve cycle.
+    timers.push(
+      setTimeout(() => {
+        if (cancelled) return;
+        setCursorSlot(null);
+      }, 420 + PUZZLE_SIZE * 340 + 300),
+    );
+    timers.push(
+      setTimeout(() => {
+        if (!cancelled) setCycle((c) => c + 1);
+      }, 420 + PUZZLE_SIZE * 340 + 2200),
+    );
+
+    return () => {
+      cancelled = true;
+      timers.forEach(clearTimeout);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cycle, paused, prefersReducedMotion]);
+
+  const cursorPos = cursorSlot === null
+    ? null
+    : { row: Math.floor(cursorSlot / PUZZLE_COLS), col: cursorSlot % PUZZLE_COLS };
+
+  return (
+    <div
+      className="puzzle-board-scene"
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      onFocus={() => setPaused(true)}
+      onBlur={() => setPaused(false)}
+    >
+      <div
+        ref={containerRef}
+        className="puzzle-board"
+        tabIndex={0}
+        style={{ gridTemplateColumns: `repeat(${PUZZLE_COLS}, var(--tile))` }}
+        aria-label={`Puzzle of broker logos assembling: ${pieces.map((b) => b.name).join(", ")}`}
+      >
+        {order.map((brokerIdx, slot) => {
+          const broker = pieces[brokerIdx];
+          const settled = brokerIdx === solvedOrder[slot];
+          const row = Math.floor(slot / PUZZLE_COLS);
+          const col = slot % PUZZLE_COLS;
+          return (
+            <motion.div
+              key={brokerIdx}
+              layout={!prefersReducedMotion}
+              transition={prefersReducedMotion ? { duration: 0 } : { type: "spring", stiffness: 420, damping: 32 }}
+              className={`puzzle-piece${settled ? " is-solved" : ""}`}
+              data-knob-top={row > 0 && (row + col) % 2 === 0 ? "1" : "0"}
+              data-knob-right={col < PUZZLE_COLS - 1 && (row + col) % 2 === 1 ? "1" : "0"}
+              style={{ gridRowStart: row + 1, gridColumnStart: col + 1 }}
+            >
+              <span className="puzzle-knob puzzle-knob--top" />
+              <span className="puzzle-knob puzzle-knob--right" />
+              <div className="puzzle-piece-inner">
+                <div className="puzzle-piece-badge">
+                  <BrokerLogo name={broker.name} domain={broker.domain} fallbackUrl={broker.logoUrl} />
+                </div>
+              </div>
+            </motion.div>
+          );
+        })}
+
+        {cursorPos && (
+          <motion.div
+            className="puzzle-cursor"
+            animate={{
+              left: `calc(${cursorPos.col} * (var(--tile) + var(--gap)) + var(--tile) * 0.72)`,
+              top: `calc(${cursorPos.row} * (var(--tile) + var(--gap)) + var(--tile) * 0.72)`,
+            }}
+            initial={false}
+            transition={{ type: "spring", stiffness: 260, damping: 24 }}
+          >
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M4 3l14 8-6 1.5L10 19 4 3z" fill="#22c55e" stroke="#0a0a0a" strokeWidth="1.2" strokeLinejoin="round" />
+            </svg>
+          </motion.div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function BrokersSection() {
+  const { data: settings } = useSettings();
+  const isPostIpo = settings?.systemMode === "post_ipo";
   return (
-    <section className="bg-black py-24 px-6 md:px-16 border-t border-white/10">
+    <section id="brokers-list" className="bg-black py-24 px-6 md:px-16 border-t border-white/10">
       <div className="max-w-7xl mx-auto">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
-          className="mb-14"
+          className="mb-4 text-center md:text-left"
         >
           <p className="text-white/40 text-xs tracking-widest uppercase mb-2">TRANSFERS &amp; COMPATIBILITY</p>
           <h2
@@ -671,38 +903,26 @@ function BrokersSection() {
           >
             COMPATIBLE<br />BROKERS
           </h2>
-          <p className="text-white/40 text-sm mt-4 max-w-xl leading-relaxed">
-            When SpaceX goes public, your shares can be transferred directly to your brokerage account. We support all major global brokers.
+          <p className="text-white/40 text-sm mt-4 max-w-xl leading-relaxed mx-auto md:mx-0">
+            {isPostIpo
+              ? "SpaceX is now publicly traded (NASDAQ: SPCX) — your shares can be transferred directly to your brokerage account. We support all major global brokers — watch the puzzle assemble itself below."
+              : "When SpaceX goes public, your shares can be transferred directly to your brokerage account. We support all major global brokers — watch the puzzle assemble itself below."}
           </p>
         </motion.div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-0.5 bg-white/[0.04]">
-          {BROKERS.map((broker, i) => (
-            <motion.div
-              key={broker.name}
-              initial={{ opacity: 0, y: 15 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: i * 0.03 }}
-              className="bg-black p-5 flex flex-col items-center justify-center gap-3 group hover:bg-white/[0.04] hover:-translate-y-0.5 transition-all duration-200"
-            >
-              <div className="w-14 h-14 flex items-center justify-center rounded-lg overflow-hidden">
-                <img
-                  src={broker.logoUrl}
-                  alt={broker.name}
-                  className="w-full h-full object-cover"
-                />
-              </div>
-              <p className="text-white/40 text-[0.6rem] tracking-widest uppercase text-center group-hover:text-white/70 transition-colors"
-                style={{ fontFamily: "'Arial Black', Arial, sans-serif" }}>
-                {broker.name}
-              </p>
-            </motion.div>
-          ))}
-        </div>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.92 }}
+          whileInView={{ opacity: 1, scale: 1 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.6 }}
+        >
+          <PuzzleBoard brokers={BROKERS} />
+        </motion.div>
 
-        <p className="text-white/20 text-xs mt-8 text-center tracking-wide">
-          Brokerage transfers are available after the IPO. Transfer functionality is currently locked (Pre-IPO mode).
+        <p className="text-white/20 text-xs mt-4 text-center tracking-wide">
+          {isPostIpo
+            ? "SpaceX has completed its IPO. Brokerage transfers are now available."
+            : "Brokerage transfers are available after the IPO. Transfer functionality is currently locked (Pre-IPO mode)."}
         </p>
       </div>
     </section>
@@ -766,6 +986,22 @@ export default function LandingPage() {
   const { isSignedIn, isLoaded, signOut } = useAuth();
   const { user, isLoading: userLoading } = useUser();
   const qc = useQueryClient();
+  const { data: settings } = useSettings();
+  const { data: liveQuote } = useQuery({
+    queryKey: ["priceQuote"],
+    queryFn: api.getPriceQuote,
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+    retry: 1,
+  });
+  const { data: publicStats } = useQuery({
+    queryKey: ["publicStats"],
+    queryFn: api.getPublicStats,
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+    retry: 1,
+  });
+  const sharePrice = publicStats?.sharePrice ?? liveQuote?.price ?? settings?.sharePrice ?? 130;
   const [, navigate] = useLocation();
   const { scrollY } = useScroll();
   const navBg = useTransform(scrollY, [0, 100], ["rgba(0,0,0,0)", "rgba(0,0,0,0.95)"]);
@@ -961,10 +1197,13 @@ export default function LandingPage() {
 
 
       {/* Hero */}
-      <HeroSlider onInvest={() => navigate("/invest")} onSignIn={() => navigate("/sign-in")} />
+      <HeroSlider onInvest={() => navigate("/invest")} onSignIn={() => navigate("/sign-in")} sharePrice={sharePrice} />
+
+      {/* Mars — Making Life Multiplanetary */}
+      <MarsSection onExplore={() => navigate("/invest")} />
 
       {/* Stats */}
-      <StatBar />
+      <StatBar sharePrice={sharePrice} valuation={publicStats?.valuation} accreditedInvestors={publicStats?.accreditedInvestors} />
 
       {/* YouTube video section */}
       <VideoSection />
