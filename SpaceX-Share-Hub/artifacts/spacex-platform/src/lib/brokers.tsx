@@ -115,10 +115,10 @@ export function BrokerLogo({
   /** Local static image path (e.g. "/brokers/fidelity.svg") used after the proxy fails */
   fallbackUrl?: string;
 }) {
-  // Stage: proxy → fallback static file → initials
-  const initialStage: "proxy" | "fallback" | "initials" =
+  // Stage: proxy → fallback static file → google favicon → initials
+  const initialStage: "proxy" | "fallback" | "favicon" | "initials" =
     domain ? "proxy" : fallbackUrl ? "fallback" : "initials";
-  const [stage, setStage] = useState<"proxy" | "fallback" | "initials">(initialStage);
+  const [stage, setStage] = useState<"proxy" | "fallback" | "favicon" | "initials">(initialStage);
 
   const proxyUrl = `${API_BASE}/logos/${domain}`;
 
@@ -138,6 +138,9 @@ export function BrokerLogo({
   function handleError() {
     if (stage === "proxy" && fallbackUrl) {
       setStage("fallback");
+    } else if (stage === "proxy" || stage === "fallback") {
+      // Try Google's S2 favicon service before giving up entirely
+      setStage(domain ? "favicon" : "initials");
     } else {
       setStage("initials");
     }
@@ -157,7 +160,10 @@ export function BrokerLogo({
     );
   }
 
-  const src = stage === "proxy" ? proxyUrl : (fallbackUrl ?? "");
+  const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+  const src = stage === "proxy" ? proxyUrl
+    : stage === "fallback" ? (fallbackUrl ?? "")
+    : faviconUrl;
 
   return (
     <div className={className} style={{ ...containerStyle, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.10)" }}>

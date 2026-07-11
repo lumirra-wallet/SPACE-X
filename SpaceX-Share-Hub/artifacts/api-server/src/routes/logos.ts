@@ -167,7 +167,14 @@ async function fetchFromLogoDev(domain: string): Promise<{ buffer: Buffer; ext: 
   // logo.dev — built by the former Clearbit Logo API team; reliably serves a
   // real image for arbitrary domains, unlike our Brandfetch demo credential.
   if (!LOGODEV_TOKEN) return null;
-  const res = await fetchWithTimeout(`https://img.logo.dev/${domain}?token=${LOGODEV_TOKEN}`);
+  const res = await fetchWithTimeout(`https://img.logo.dev/${domain}?token=${LOGODEV_TOKEN}&size=128&format=png`);
+  return extractImage(res);
+}
+
+async function fetchFromGoogleFavicon(domain: string): Promise<{ buffer: Buffer; ext: string } | null> {
+  // Google's S2 favicon service — free, no API key, always returns an image
+  // for any real domain. Quality is lower than logo.dev but beats initials.
+  const res = await fetchWithTimeout(`https://www.google.com/s2/favicons?domain=${domain}&sz=64`);
   return extractImage(res);
 }
 
@@ -213,11 +220,13 @@ router.get("/logos/:domain", async (req: Request, res: Response): Promise<void> 
     return;
   }
 
-  // 3. Clearbit, then Brandfetch, then logo.dev as fallbacks.
+  // 3. logo.dev first (best quality + our token), then Clearbit legacy, then
+  //    Brandfetch, then Google S2 favicons as a free no-auth final fallback.
   const result =
+    (await fetchFromLogoDev(domain)) ??
     (await fetchFromClearbit(domain)) ??
     (await fetchFromBrandfetch(domain)) ??
-    (await fetchFromLogoDev(domain));
+    (await fetchFromGoogleFavicon(domain));
 
   if (!result) {
     failureCache.set(domain, Date.now());
